@@ -1,6 +1,4 @@
-Here's the `docs/whatsapp-server/railway.json` file:
 
-```json
 {
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
@@ -13,8 +11,3 @@ Here's the `docs/whatsapp-server/railway.json` file:
     "restartPolicyMaxRetries": 10
   }
 }
-```
-
-This configures Railway to build from the Dockerfile and auto-restart on failures (up to 10 retries).
-
-Show .env.example
