@@ -1,6 +1,4 @@
-Here's the `Dockerfile`:
 
-```dockerfile
 FROM node:18-alpine
 
 WORKDIR /app
@@ -21,8 +19,3 @@ RUN mkdir -p whatsapp-session
 EXPOSE 3001
 
 CMD ["npm", "start"]
-```
-
-Show railway.json
-Show .env.example
-Show server.ts
