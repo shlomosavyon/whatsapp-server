@@ -1,6 +1,4 @@
-Here's `docs/whatsapp-server/src/notification-service.ts`:
 
-```typescript
 export class NotificationService {
   private websiteUrl = 'https://friendswithkings.com/calendar';
 
@@ -32,10 +30,3 @@ export class NotificationService {
 }
 
 export const notificationService = new NotificationService();
-```
-
-The file is 101 lines. It formats all WhatsApp notification messages — daily roster, signups, cancellations, and capacity alerts.
-
-Show get-roster edge function
-Show Dockerfile
-Show whatsapp-webhook edge function
