@@ -1,6 +1,4 @@
-Here's `docs/whatsapp-server/src/server.ts`:
 
-```typescript
 import express from 'express';
 import cors from 'cors';
 import QRCode from 'qrcode';
@@ -37,10 +35,3 @@ function verifyWebhookSecret(req, res, next) {
 // POST /api/webhook/player-cancelled - Webhook for cancellations
 // POST /api/webhook/player-signup - Webhook for signups
 // POST /api/whatsapp/send-roster-now - Manual roster trigger
-```
-
-The file is 236 lines total. It handles WhatsApp connection, QR code generation, webhook endpoints for player signups/cancellations, and scheduled roster messages.
-
-Show scheduler.ts
-Show notification-service.ts
-Show whatsapp-service.ts
