@@ -71,7 +71,8 @@ class NotificationScheduler {
         return;
       }
 
-      const rosterData = await response.json() as RosterData;
+      const jsonData: unknown = await response.json();
+const rosterData = jsonData as RosterData;
 
       if (!rosterData.hasGame) {
         console.log("No game scheduled for today");
