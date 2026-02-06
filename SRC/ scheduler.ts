@@ -1,6 +1,4 @@
-Here's `docs/whatsapp-server/src/scheduler.ts`:
 
-```typescript
 import cron from "node-cron";
 import { getWhatsAppService } from './whatsapp-service';
 import { notificationService } from './notification-service';
@@ -32,10 +30,3 @@ class NotificationScheduler {
 
 // Singleton pattern
 export function getScheduler(config?: SchedulerConfig): NotificationScheduler { ... }
-```
-
-The file is 128 lines. It uses `node-cron` to schedule the 6 AM EST daily roster message, fetching data from the `get-roster` edge function and sending it via WhatsApp.
-
-Show notification-service.ts
-Show get-roster edge function
-Show Dockerfile
