@@ -1,6 +1,4 @@
-Here's `docs/whatsapp-server/src/whatsapp-service.ts`:
 
-```typescript
 import makeWASocket, { 
   DisconnectReason, 
   useMultiFileAuthState,
@@ -35,10 +33,3 @@ export function getWhatsAppService(): WhatsAppService {
   }
   return whatsappService;
 }
-```
-
-The file is 154 lines. It uses `@whiskeysockets/baileys` to maintain a persistent WebSocket connection to WhatsApp Web, handles QR code auth, auto-reconnection, and group message delivery.
-
-Show scheduler.ts
-Show notification-service.ts
-Show Dockerfile
