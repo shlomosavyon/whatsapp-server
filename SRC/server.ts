@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import QRCode from 'qrcode';
 import { getWhatsAppService } from './whatsapp-service';
-import { getScheduler } from './scheduler.js';
+import { getScheduler } from './scheduler';
 import { notificationService } from './notification-service';
 
 const app = express();
