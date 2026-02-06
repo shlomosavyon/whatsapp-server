@@ -1,4 +1,3 @@
-
 import cron from "node-cron";
 import { getWhatsAppService } from './whatsapp-service';
 import { notificationService } from './notification-service';
@@ -8,6 +7,16 @@ interface SchedulerConfig {
   dailyRosterTime: string;
   edgeFunctionUrl: string;
   webhookSecret: string;
+}
+
+interface RosterData {
+  hasGame: boolean;
+  date: string;
+  timeRange: string;
+  confirmedPlayers: Array<{ name: string }>;
+  waitlistPlayers: Array<{ name: string }>;
+  availablePlayers: Array<{ name: string }>;
+  maxPlayers: number;
 }
 
 class NotificationScheduler {
@@ -62,7 +71,7 @@ class NotificationScheduler {
         return;
       }
 
-      const rosterData = await response.json();
+      const rosterData = await response.json() as RosterData;
 
       if (!rosterData.hasGame) {
         console.log("No game scheduled for today");
