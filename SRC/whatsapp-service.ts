@@ -120,7 +120,7 @@ class WhatsAppService {
     }
 
     try {
-      await this.sock.sendMessage(this.groupId, { text: message });
+      await this.sock.sendMessage(this.groupId!, { text: message });
       console.log('Message sent successfully');
       return true;
     } catch (error) {
