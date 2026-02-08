@@ -58,4 +58,12 @@ class NotificationScheduler {
         return;
       }
 
-      const response = await fetch
+      const response = await fetch(`${this.config.edgeFunctionUrl}/get-roster`, {
+        method: 'GET',
+        headers: {
+          'x-webhook-secret': this.config.webhookSecret
+        }
+      });
+
+      if (!response.ok) {
+        console.error('Failed t
