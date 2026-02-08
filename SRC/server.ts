@@ -67,6 +67,7 @@ app.post('/api/whatsapp/test', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 app.post('/api/webhook/player-cancelled', verifyWebhookSecret, async (req, res) => {
   try {
     const { cancelledPlayerName, promotedPlayerName, remainingSpots, currentCount, maxPlayers } = req.body;
@@ -136,4 +137,3 @@ app.listen(PORT, () => {
     scheduler.startDailyRoster();
   }
 });
-Complete server.ts file
