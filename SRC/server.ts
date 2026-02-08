@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
-
+app.use(express.static('.'));
 const EDGE_FUNCTION_BASE_URL = process.env.EDGE_FUNCTION_BASE_URL;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "default-secret";
 
