@@ -1,6 +1,6 @@
 import cron from "node-cron";
-import { getWhatsAppService } from './whatsapp-service';
-import { notificationService } from './notification-service';
+import { getWhatsAppService } from './whatsapp-service.js';
+import { notificationService } from './notification-service.js';
 
 interface SchedulerConfig {
   enabled: boolean;
@@ -70,7 +70,7 @@ class NotificationScheduler {
         return;
       }
 
-      const rosterData: RosterData = await response.json();
+      const rosterData = await response.json() as RosterData;
 
       if (!rosterData.hasGame) {
         console.log('No game scheduled, skipping daily roster');
