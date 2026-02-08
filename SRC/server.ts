@@ -8,15 +8,12 @@ import { notificationService } from './notification-service.js';
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Environment variables
 const EDGE_FUNCTION_BASE_URL = process.env.EDGE_FUNCTION_BASE_URL;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "default-secret";
 
-// Simple auth middleware for webhooks
 function verifyWebhookSecret(req: any, res: any, next: any) {
   const secret = req.headers["x-webhook-secret"];
   if (secret !== WEBHOOK_SECRET) {
@@ -25,21 +22,10 @@ function verifyWebhookSecret(req: any, res: any, next: any) {
   next();
 }
 
-// Routes:
-// GET  /health - Health check
-// POST /api/whatsapp/connect - Connect & get QR code
-// GET  /api/whatsapp/status - Check connection status
-// POST /api/whatsapp/disconnect - Disconnect WhatsApp
-// POST /api/whatsapp/test - Send test message
-// POST /api/webhook/player-cancelled - Webhook for cancellations
-// POST /api/webhook/player-signup - Webhook for signups
-// POST /api/whatsapp/send-roster-now - Manual roster trigger
-
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// WhatsApp endpoints
 app.post('/api/whatsapp/connect', async (req, res) => {
   try {
     const whatsapp = getWhatsAppService();
@@ -75,12 +61,79 @@ app.post('/api/whatsapp/disconnect', async (req, res) => {
 app.post('/api/whatsapp/test', async (req, res) => {
   try {
     const whatsapp = getWhatsAppService();
-    const success = await whatsapp.sendMessage('Test message from WhatsApp server! 🎉');
+    const success = await whatsapp.sendMessage('Test message from WhatsApp server!');
     res.json({ success, message: 'Test message sent' });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
+app.post('/api/webhook/player-cancelled', verifyWebhookSecret, async (req, res) => {
+  try {
+    const { cancelledPlayerName, promotedPlayerName, remainingSpots, currentCount, maxPlayers } = req.body;
+    
+    const whatsapp = getWhatsAppService();
+    if (!whatsapp.getConnectionStatus()) {
+      return res.status(503).json({ error: 'WhatsApp not connected' });
+    }
 
-// Webhook endpoints
-app.post('/api/webhook/player-cancelled',
+    const message = notificationService.generateCancellationNotification(
+      cancelledPlayerName,
+      promotedPlayerName,
+      remainingSpots,
+      currentCount,
+      maxPlayers
+    );
+
+    const success = await whatsapp.sendMessage(message);
+    res.json({ success, message: 'Notification sent' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/webhook/player-signup', verifyWebhookSecret, async (req, res) => {
+  try {
+    const { playerName, currentCount, maxPlayers } = req.body;
+    
+    const whatsapp = getWhatsAppService();
+    if (!whatsapp.getConnectionStatus()) {
+      return res.status(503).json({ error: 'WhatsApp not connected' });
+    }
+
+    const message = notificationService.generateSignupNotification(
+      playerName,
+      currentCount,
+      maxPlayers
+    );
+
+    const success = await whatsapp.sendMessage(message);
+    res.json({ success, message: 'Notification sent' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/whatsapp/send-roster-now', verifyWebhookSecret, async (req, res) => {
+  try {
+    const scheduler = getScheduler();
+    await scheduler.triggerDailyRosterNow();
+    res.json({ success: true, message: 'Daily roster triggered' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  
+  if (EDGE_FUNCTION_BASE_URL && WEBHOOK_SECRET) {
+    const scheduler = getScheduler({
+      enabled: true,
+      dailyRosterTime: '0 6 * * *',
+      edgeFunctionUrl: EDGE_FUNCTION_BASE_URL,
+      webhookSecret: WEBHOOK_SECRET,
+    });
+    scheduler.startDailyRoster();
+  }
+});
+Complete server.ts file
