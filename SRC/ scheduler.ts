@@ -66,4 +66,51 @@ class NotificationScheduler {
       });
 
       if (!response.ok) {
-        console.error('Failed t
+        console.error('Failed to fetch roster data:', response.statusText);
+        return;
+      }
+
+      const rosterData: RosterData = await response.json();
+
+      if (!rosterData.hasGame) {
+        console.log('No game scheduled, skipping daily roster');
+        return;
+      }
+
+      const message = notificationService.generateDailyRosterNotification(rosterData);
+      
+      await whatsapp.sendMessage(message);
+      console.log('Daily roster sent successfully');
+    } catch (error) {
+      console.error('Error sending daily roster:', error);
+    }
+  }
+
+  async triggerDailyRosterNow(): Promise<void> {
+    console.log('Manually triggering daily roster...');
+    await this.sendDailyRoster();
+  }
+
+  stopDailyRoster(): void {
+    if (this.dailyRosterTask) {
+      this.dailyRosterTask.stop();
+      console.log('Daily roster scheduler stopped');
+    }
+  }
+}
+
+let schedulerInstance: NotificationScheduler | null = null;
+
+export function getScheduler(config?: SchedulerConfig): NotificationScheduler {
+  if (!schedulerInstance && config) {
+    schedulerInstance = new NotificationScheduler(config);
+  }
+  
+  if (!schedulerInstance) {
+    throw new Error('Scheduler not initialized. Provide config on first call.');
+  }
+  
+  return schedulerInstance;
+}
+
+export { NotificationScheduler };
