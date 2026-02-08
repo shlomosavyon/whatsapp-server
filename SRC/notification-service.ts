@@ -25,7 +25,7 @@ export class NotificationService {
     let message = `🃏 *Good morning!*\n\n`;
     message += `*Tonight's Game - ${dayName}, ${dateStr}*\n`;
     message += `🕐 ${game.time}\n\n`;
-
+    
     message += `*Confirmed Players (${game.confirmedPlayers.length}/${game.maxPlayers}):*\n`;
     game.confirmedPlayers.forEach((player, index) => {
       const name = player.display_name || player.phone_number.slice(-4);
@@ -33,6 +33,7 @@ export class NotificationService {
     });
 
     const openSpots = game.maxPlayers - game.confirmedPlayers.length;
+    
     if (openSpots > 0) {
       const confirmedIds = new Set(game.confirmedPlayers.map(p => p.id));
       const waitlistIds = new Set(game.waitlist.map(p => p.id));
@@ -61,6 +62,45 @@ export class NotificationService {
     return message;
   }
 
+  generateDailyRosterNotification(rosterData: any): string {
+    const dayName = new Date(rosterData.date).toLocaleDateString('en-US', { weekday: 'long' });
+    const dateStr = new Date(rosterData.date).toLocaleDateString('en-US', { 
+      month: 'long', 
+      day: 'numeric' 
+    });
+
+    let message = `🃏 *Good morning!*\n\n`;
+    message += `*Tonight's Game - ${dayName}, ${dateStr}*\n`;
+    message += `🕐 ${rosterData.timeRange}\n\n`;
+    
+    message += `*Confirmed Players (${rosterData.confirmedPlayers.length}/${rosterData.maxPlayers}):*\n`;
+    rosterData.confirmedPlayers.forEach((player: any, index: number) => {
+      message += `${index + 1}. ${player.name}\n`;
+    });
+
+    const openSpots = rosterData.maxPlayers - rosterData.confirmedPlayers.length;
+    
+    if (openSpots > 0 && rosterData.availablePlayers.length > 0) {
+      message += `\n🎯 *${openSpots} seat${openSpots > 1 ? 's' : ''} available!*\n\n`;
+      message += `Hey `;
+      message += rosterData.availablePlayers.slice(0, 5).map((p: any) => p.name).join(', ');
+      if (rosterData.availablePlayers.length > 5) {
+        message += ` and ${rosterData.availablePlayers.length - 5} more`;
+      }
+      message += ` - spots are open! First come, first serve.\n\n`;
+      message += `👉 Sign up here: ${this.websiteUrl}`;
+    }
+
+    if (rosterData.waitlistPlayers.length > 0) {
+      message += `\n\n*Waitlist (${rosterData.waitlistPlayers.length}):*\n`;
+      rosterData.waitlistPlayers.forEach((player: any, index: number) => {
+        message += `${index + 1}. ${player.name}\n`;
+      });
+    }
+
+    return message;
+  }
+
   generateCancellationNotification(
     cancelledPlayerName: string,
     promotedPlayerName: string | null,
@@ -70,14 +110,14 @@ export class NotificationService {
   ): string {
     let message = `❌ *Player Update*\n\n`;
     message += `${cancelledPlayerName} has dropped out. (${currentCount}/${maxPlayers})\n`;
-
+    
     if (promotedPlayerName) {
       message += `\n✅ ${promotedPlayerName} has been moved from waitlist!\n`;
     } else if (remainingSpots > 0) {
       message += `\n🎯 *${remainingSpots} seat${remainingSpots > 1 ? 's' : ''} now available!*\n`;
       message += `\n👉 Sign up here: ${this.websiteUrl}`;
     }
-
+    
     return message;
   }
 
