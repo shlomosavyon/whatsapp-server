@@ -1,9 +1,9 @@
 import express from 'express';
 import cors from 'cors';
 import QRCode from 'qrcode';
-import { getWhatsAppService } from './whatsapp-service';
-import { getScheduler } from './scheduler';
-import { notificationService } from './notification-service';
+import { getWhatsAppService } from './whatsapp-service.js';
+import { getScheduler } from './scheduler.js';
+import { notificationService } from './notification-service.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -83,74 +83,4 @@ app.post('/api/whatsapp/test', async (req, res) => {
 });
 
 // Webhook endpoints
-app.post('/api/webhook/player-cancelled', verifyWebhookSecret, async (req, res) => {
-  try {
-    const { cancelledPlayerName, promotedPlayerName, remainingSpots, currentCount, maxPlayers } = req.body;
-    
-    const whatsapp = getWhatsAppService();
-    if (!whatsapp.getConnectionStatus()) {
-      return res.status(503).json({ error: 'WhatsApp not connected' });
-    }
-
-    const message = notificationService.generateCancellationNotification(
-      cancelledPlayerName,
-      promotedPlayerName,
-      remainingSpots,
-      currentCount,
-      maxPlayers
-    );
-
-    const success = await whatsapp.sendMessage(message);
-    res.json({ success, message: 'Notification sent' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/webhook/player-signup', verifyWebhookSecret, async (req, res) => {
-  try {
-    const { playerName, currentCount, maxPlayers } = req.body;
-    
-    const whatsapp = getWhatsAppService();
-    if (!whatsapp.getConnectionStatus()) {
-      return res.status(503).json({ error: 'WhatsApp not connected' });
-    }
-
-    const message = notificationService.generateSignupNotification(
-      playerName,
-      currentCount,
-      maxPlayers
-    );
-
-    const success = await whatsapp.sendMessage(message);
-    res.json({ success, message: 'Notification sent' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/whatsapp/send-roster-now', verifyWebhookSecret, async (req, res) => {
-  try {
-    const scheduler = getScheduler();
-    await scheduler.triggerDailyRosterNow();
-    res.json({ success: true, message: 'Daily roster triggered' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  
-  // Initialize scheduler if configured
-  if (EDGE_FUNCTION_BASE_URL && WEBHOOK_SECRET) {
-    const scheduler = getScheduler({
-      enabled: true,
-      dailyRosterTime: '0 6 * * *',
-      edgeFunctionUrl: EDGE_FUNCTION_BASE_URL,
-      webhookSecret: WEBHOOK_SECRET,
-    });
-    scheduler.startDailyRoster();
-  }
-});
+app.post('/api/webhook/player-cancelled',
