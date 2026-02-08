@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Server - Connect</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            text-align: center;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #25D366;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #25D366;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px;
+        }
+        button:hover {
+            background: #128C7E;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        #qrCode {
+            margin: 20px auto;
+            max-width: 300px;
+        }
+        #qrCode img {
+            width: 100%;
+            border: 2px solid #25D366;
+            border-radius: 10px;
+        }
+        .status {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        .instructions {
+            text-align: left;
+            margin: 20px 0;
+            padding: 20px;
+            background: #e7f3ff;
+            border-radius: 5px;
+        }
+        .instructions ol {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .instructions li {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎰 Poker WhatsApp Server</h1>
+        
+        <div id="statusDiv"></div>
+        
+        <div id="qrCode"></div>
+        
+        <div class="instructions" id="instructions" style="display: none;">
+            <h3>📱 How to Connect:</h3>
+            <ol>
+                <li>Open WhatsApp on your phone</li>
+                <li>Tap <strong>Menu (⋮)</strong> or <strong>Settings</strong></li>
+                <li>Tap <strong>Linked Devices</strong></li>
+                <li>Tap <strong>Link a Device</strong></li>
+                <li>Scan the QR code above</li>
+            </ol>
+        </div>
+        
+        <button id="connectBtn" onclick="connectWhatsApp()">🔗 Connect WhatsApp</button>
+        <button id="statusBtn" onclick="checkStatus()">📊 Check Status</button>
+        <button id="testBtn" onclick="sendTest()" style="display: none;">✉️ Send Test Message</button>
+    </div>
+
+    <script>
+      function showStatus(message, type) {
+            const statusDiv = document.getElementById('statusDiv');
+            statusDiv.innerHTML = `<div class="status ${type}">${message}</div>`;
+        }
+
+        async function connectWhatsApp() {
+            const btn = document.getElementById('connectBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Connecting...';
+            
+            document.getElementById('qrCode').innerHTML = '';
+            document.getElementById('instructions').style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/whatsapp/connect', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.qrCode) {
+                    document.getElementById('qrCode').innerHTML = `<img src="${data.qrCode}" alt="QR Code">`;
+                    document.getElementById('instructions').style.display = 'block';
+                    showStatus('✅ QR Code generated! Scan it with your phone.', 'info');
+                } else if (data.message) {
+                    showStatus(`ℹ️ ${data.message}`, 'info');
+                    setTimeout(checkStatus, 2000);
+                } else {
+                    showStatus('❌ Unexpected response from server', 'error');
+                }
+            } catch (error) {
+                showStatus(`❌ Error: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🔗 Connect WhatsApp';
+            }
+        }
+
+        async function checkStatus() {
+            const btn = document.getElementById('statusBtn');
+            btn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/whatsapp/status');
+                const data = await response.json();
+                
+                if (data.connected) {
+                    showStatus('✅ WhatsApp is CONNECTED and ready!', 'success');
+                    document.getElementById('testBtn').style.display = 'inline-block';
+                    document.getElementById('instructions').style.display = 'none';
+                    document.getElementById('qrCode').innerHTML = '';
+                } else {
+                    showStatus('❌ WhatsApp is NOT connected. Click "Connect WhatsApp" to get started.', 'error');
+                    document.getElementById('testBtn').style.display = 'none';
+                }
+            } catch (error) {
+                showStatus(`❌ Error checking status: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function sendTest() {
+            const btn = document.getElementById('testBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Sending...';
+            
+            try {
+                const response = await fetch('/api/whatsapp/test', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showStatus('✅ Test message sent to your poker group!', 'success');
+                } else {
+                    showStatus('❌ Failed to send test message', 'error');
+                }
+            } catch (error) {
+                showStatus(`❌ Error: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '✉️ Send Test Message';
+            }
+        }
+
+        window.addEventListener('load', checkStatus);
+    </script>
+</body>
+</html>
