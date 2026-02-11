@@ -13,7 +13,7 @@ class WhatsAppService {
   private config: WhatsAppConfig;
   private groupId: string | null = null;
   private isConnected: boolean = false;
-  private qrCallback: ((qr: string) => void) | null = null;
+  private latestQR: string | null = null;
 
   constructor(config: WhatsAppConfig) {
     this.config = config;
@@ -36,8 +36,11 @@ class WhatsAppService {
     }
   }
 
-  async connect(): Promise<string | null> {
-    // Close existing socket if any
+  getLatestQR(): string | null {
+    return this.latestQR;
+  }
+
+  async connect(): Promise<void> {
     if (this.sock) {
       try {
         this.sock.ev.removeAllListeners('connection.update');
@@ -49,7 +52,9 @@ class WhatsAppService {
       this.sock = null;
     }
 
-    // Clear old session to force fresh QR
+    this.latestQR = null;
+    this.isConnected = false;
+
     this.clearSession();
 
     const { state, saveCreds } = await useMultiFileAuthState(this.config.sessionPath);
@@ -65,11 +70,8 @@ class WhatsAppService {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
-        console.log('QR code received by service');
-        if (this.qrCallback) {
-          this.qrCallback(qr);
-          this.qrCallback = null;
-        }
+        console.log('QR code received and stored');
+        this.latestQR = qr;
       }
 
       if (connection === 'close') {
@@ -100,11 +102,10 @@ class WhatsAppService {
       } else if (connection === 'open') {
         console.log('WhatsApp connection established');
         this.isConnected = true;
+        this.latestQR = null;
         await this.findGroupId();
       }
     });
-
-    return null;
   }
 
   private async findGroupId(): Promise<void> {
@@ -164,7 +165,7 @@ class WhatsAppService {
   }
 
   setQRCallback(callback: ((qr: string) => void)): void {
-    this.qrCallback = callback;
+    // Keep for compatibility
   }
 
   getConnectionStatus(): boolean {
@@ -180,6 +181,7 @@ class WhatsAppService {
       }
       this.isConnected = false;
       this.sock = null;
+      this.latestQR = null;
     }
   }
 }
