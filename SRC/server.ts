@@ -29,37 +29,29 @@ app.get('/health', (req, res) => {
 app.post('/api/whatsapp/connect', async (req, res) => {
   try {
     const whatsapp = getWhatsAppService();
-
-    // Set up QR callback BEFORE calling connect
-    const qrPromise = new Promise<string | null>((resolve) => {
-      const timeout = setTimeout(() => {
-        console.log('QR timeout - no QR received in 60s');
-        resolve(null);
-      }, 60000);
-
-      whatsapp.setQRCallback((qr: string) => {
-        console.log('QR callback fired in server.ts');
-        clearTimeout(timeout);
-        resolve(qr);
-      });
-    });
-
-    // Start the connection WITHOUT awaiting - let it run in background
     whatsapp.connect().catch((err: any) => {
-      console.error('Connect error (background):', err);
+      console.error('Connect error:', err);
     });
-
-    // Wait for the QR code from the callback (up to 60s)
-    const qrCode = await qrPromise;
-
-    if (qrCode) {
-      const qrCodeDataURL = await QRCode.toDataURL(qrCode);
-      res.json({ qrCode: qrCodeDataURL });
-    } else {
-      res.json({ message: 'Already connected or connecting' });
-    }
+    res.json({ message: 'Connection started. Poll /api/whatsapp/qr for QR code.' });
   } catch (error: any) {
     console.error('Connect error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/whatsapp/qr', async (req, res) => {
+  try {
+    const whatsapp = getWhatsAppService();
+    const qr = whatsapp.getLatestQR();
+    if (qr) {
+      const qrCodeDataURL = await QRCode.toDataURL(qr);
+      res.json({ qrCode: qrCodeDataURL });
+    } else if (whatsapp.getConnectionStatus()) {
+      res.json({ connected: true });
+    } else {
+      res.json({ waiting: true });
+    }
+  } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
