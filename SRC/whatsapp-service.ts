@@ -14,7 +14,6 @@ class WhatsAppService {
   private groupId: string | null = null;
   private isConnected: boolean = false;
   private qrCallback: ((qr: string) => void) | null = null;
-  private isConnecting: boolean = false;
 
   constructor(config: WhatsAppConfig) {
     this.config = config;
@@ -27,24 +26,31 @@ class WhatsAppService {
     }
   }
 
-  async connect(): Promise<string | null> {
-    // Prevent multiple simultaneous connection attempts
-    if (this.isConnecting) {
-      console.log('Already connecting, skipping...');
-      return null;
+  private clearSession(): void {
+    try {
+      rmSync(this.config.sessionPath, { recursive: true, force: true });
+      mkdirSync(this.config.sessionPath, { recursive: true });
+      console.log('Cleared old session data for fresh QR');
+    } catch (e) {
+      console.log('No old session to clear');
     }
-    this.isConnecting = true;
+  }
+
+  async connect(): Promise<string | null> {
+    // Close existing socket if any
+    if (this.sock) {
+      try {
+        this.sock.ev.removeAllListeners('connection.update');
+        this.sock.ev.removeAllListeners('creds.update');
+        this.sock.end(undefined);
+      } catch (e) {
+        console.log('Error closing existing socket:', e);
+      }
+      this.sock = null;
+    }
 
     // Clear old session to force fresh QR
-    if (!this.isConnected) {
-      try {
-        rmSync(this.config.sessionPath, { recursive: true, force: true });
-        mkdirSync(this.config.sessionPath, { recursive: true });
-        console.log('Cleared old session data for fresh QR');
-      } catch (e) {
-        console.log('No old session to clear');
-      }
-    }
+    this.clearSession();
 
     const { state, saveCreds } = await useMultiFileAuthState(this.config.sessionPath);
 
@@ -55,38 +61,50 @@ class WhatsAppService {
 
     this.sock.ev.on('creds.update', saveCreds);
 
-    let qrCode: string | null = null;
-
     this.sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
-        console.log('QR code received');
-        qrCode = qr;
+        console.log('QR code received by service');
         if (this.qrCallback) {
           this.qrCallback(qr);
+          this.qrCallback = null;
         }
       }
 
       if (connection === 'close') {
-        const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-        console.log('Connection closed. Reconnecting:', shouldReconnect);
-        this.isConnecting = false;
+        const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+        console.log('Connection closed. Status code:', statusCode, 'Reconnecting:', shouldReconnect);
+        
         if (shouldReconnect && this.isConnected) {
-          // Only auto-reconnect if we were previously connected (not during initial QR phase)
-          await this.connect();
+          console.log('Auto-reconnecting...');
+          const { state: newState, saveCreds: newSaveCreds } = await useMultiFileAuthState(this.config.sessionPath);
+          this.sock = makeWASocket({
+            auth: newState,
+            printQRInTerminal: false,
+          });
+          this.sock.ev.on('creds.update', newSaveCreds);
+          this.sock.ev.on('connection.update', async (u) => {
+            if (u.connection === 'open') {
+              console.log('Reconnected successfully');
+              this.isConnected = true;
+            } else if (u.connection === 'close') {
+              console.log('Reconnect failed');
+              this.isConnected = false;
+            }
+          });
         } else {
           this.isConnected = false;
         }
       } else if (connection === 'open') {
         console.log('WhatsApp connection established');
         this.isConnected = true;
-        this.isConnecting = false;
         await this.findGroupId();
       }
     });
 
-    return qrCode;
+    return null;
   }
 
   private async findGroupId(): Promise<void> {
@@ -155,9 +173,12 @@ class WhatsAppService {
 
   async disconnect(): Promise<void> {
     if (this.sock) {
-      await this.sock.logout();
+      try {
+        await this.sock.logout();
+      } catch (e) {
+        console.log('Error during logout:', e);
+      }
       this.isConnected = false;
-      this.isConnecting = false;
       this.sock = null;
     }
   }
