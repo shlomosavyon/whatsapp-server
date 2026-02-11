@@ -30,20 +30,22 @@ app.post('/api/whatsapp/connect', async (req, res) => {
   try {
     const whatsapp = getWhatsAppService();
 
-    // Use a Promise that resolves when the QR callback fires
+    // Set up QR callback BEFORE calling connect
     const qrPromise = new Promise<string | null>((resolve) => {
       const timeout = setTimeout(() => {
+        console.log('QR timeout - no QR received in 30s');
         resolve(null);
-      }, 30000); // 30 second timeout
+      }, 30000);
 
       whatsapp.setQRCallback((qr: string) => {
+        console.log('QR callback fired in server.ts');
         clearTimeout(timeout);
         resolve(qr);
       });
     });
 
-    // Start the connection (don't await its return value for QR)
-    whatsapp.connect();
+    // Now start the connection
+    await whatsapp.connect();
 
     // Wait for the QR code from the callback
     const qrCode = await qrPromise;
@@ -55,6 +57,7 @@ app.post('/api/whatsapp/connect', async (req, res) => {
       res.json({ message: 'Already connected or connecting' });
     }
   } catch (error: any) {
+    console.error('Connect error:', error);
     res.status(500).json({ error: error.message });
   }
 });
