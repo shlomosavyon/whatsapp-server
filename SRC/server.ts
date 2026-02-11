@@ -29,8 +29,25 @@ app.get('/health', (req, res) => {
 app.post('/api/whatsapp/connect', async (req, res) => {
   try {
     const whatsapp = getWhatsAppService();
-    const qrCode = await whatsapp.connect();
-    
+
+    // Use a Promise that resolves when the QR callback fires
+    const qrPromise = new Promise<string | null>((resolve) => {
+      const timeout = setTimeout(() => {
+        resolve(null);
+      }, 30000); // 30 second timeout
+
+      whatsapp.setQRCallback((qr: string) => {
+        clearTimeout(timeout);
+        resolve(qr);
+      });
+    });
+
+    // Start the connection (don't await its return value for QR)
+    whatsapp.connect();
+
+    // Wait for the QR code from the callback
+    const qrCode = await qrPromise;
+
     if (qrCode) {
       const qrCodeDataURL = await QRCode.toDataURL(qrCode);
       res.json({ qrCode: qrCodeDataURL });
@@ -61,7 +78,7 @@ app.post('/api/whatsapp/disconnect', async (req, res) => {
 app.post('/api/whatsapp/test', async (req, res) => {
   try {
     const whatsapp = getWhatsAppService();
-    const success = await whatsapp.sendMessage('Test message from WhatsApp server!');
+    const success = await whatsapp.sendMessage("Test message from WhatsApp server");
     res.json({ success, message: 'Test message sent' });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -71,7 +88,7 @@ app.post('/api/whatsapp/test', async (req, res) => {
 app.post('/api/webhook/player-cancelled', verifyWebhookSecret, async (req, res) => {
   try {
     const { cancelledPlayerName, promotedPlayerName, remainingSpots, currentCount, maxPlayers } = req.body;
-    
+
     const whatsapp = getWhatsAppService();
     if (!whatsapp.getConnectionStatus()) {
       return res.status(503).json({ error: 'WhatsApp not connected' });
@@ -95,7 +112,7 @@ app.post('/api/webhook/player-cancelled', verifyWebhookSecret, async (req, res) 
 app.post('/api/webhook/player-signup', verifyWebhookSecret, async (req, res) => {
   try {
     const { playerName, currentCount, maxPlayers } = req.body;
-    
+
     const whatsapp = getWhatsAppService();
     if (!whatsapp.getConnectionStatus()) {
       return res.status(503).json({ error: 'WhatsApp not connected' });
@@ -126,7 +143,7 @@ app.post('/api/whatsapp/send-roster-now', verifyWebhookSecret, async (req, res) 
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  
+
   if (EDGE_FUNCTION_BASE_URL && WEBHOOK_SECRET) {
     const scheduler = getScheduler({
       enabled: true,
