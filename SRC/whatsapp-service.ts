@@ -1,4 +1,4 @@
-import makeWASocket, { DisconnectReason, useMultiFileAuthState, WASocket } from '@whiskeysockets/baileys';
+import makeWASocket, { DisconnectReason, useMultiFileAuthState, WASocket, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'fs';
 import path from 'path';
@@ -59,9 +59,13 @@ class WhatsAppService {
 
     const { state, saveCreds } = await useMultiFileAuthState(this.config.sessionPath);
 
+    const { version } = await fetchLatestBaileysVersion();
+    console.log('Using WA version:', version);
+
     this.sock = makeWASocket({
       auth: state,
-      printQRInTerminal: true,
+      version,
+      printQRInTerminal: false,
     });
 
     this.sock.ev.on('creds.update', saveCreds);
@@ -84,6 +88,7 @@ class WhatsAppService {
           const { state: newState, saveCreds: newSaveCreds } = await useMultiFileAuthState(this.config.sessionPath);
           this.sock = makeWASocket({
             auth: newState,
+            version,
             printQRInTerminal: false,
           });
           this.sock.ev.on('creds.update', newSaveCreds);
