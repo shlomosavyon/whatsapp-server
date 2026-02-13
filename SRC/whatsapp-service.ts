@@ -83,7 +83,7 @@ class WhatsAppService {
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
         console.log('Connection closed. Status code:', statusCode, 'Reconnecting:', shouldReconnect);
         
-        if (shouldReconnect && this.isConnected) {
+        if (shouldReconnect) {
           console.log('Auto-reconnecting...');
           const { state: newState, saveCreds: newSaveCreds } = await useMultiFileAuthState(this.config.sessionPath);
           this.sock = makeWASocket({
