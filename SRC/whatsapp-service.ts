@@ -96,6 +96,7 @@ class WhatsAppService {
             if (u.connection === 'open') {
               console.log('Reconnected successfully');
               this.isConnected = true;
+              await this.findGroupId();
             } else if (u.connection === 'close') {
               console.log('Reconnect failed');
               this.isConnected = false;
