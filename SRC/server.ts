@@ -75,7 +75,8 @@ app.post('/api/whatsapp/disconnect', async (req, res) => {
 app.post('/api/whatsapp/test', async (req, res) => {
   try {
     const whatsapp = getWhatsAppService();
-    const success = await whatsapp.sendMessage("Test message from WhatsApp server");
+    const { message } = req.body || {};
+const success = await whatsapp.sendMessage(message || "Test message from WhatsApp server");
     res.json({ success, message: 'Test message sent' });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
