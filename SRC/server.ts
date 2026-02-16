@@ -135,4 +135,91 @@ app.post('/api/whatsapp/send-roster-now', verifyWebhookSecret, async (req, res) 
     await scheduler.triggerDailyRosterNow();
     res.json({ success: true, message: 'Daily roster triggered' });
   } catch (error: any) {
-    res.status(500).json({ error: error
+    res.status(500).json({ error: error.message });
+  }
+});
+
+const CRON_SECRET = process.env.CRON_SECRET || 'fwk2026';
+app.get('/api/cron/morning-roster', async (req, res) => {
+  try {
+    if (req.query.key !== CRON_SECRET) {
+      return res.status(401).json({ error: 'Invalid key' });
+    }
+
+    const whatsapp = getWhatsAppService();
+    if (!whatsapp.getConnectionStatus()) {
+      return res.status(503).json({ error: 'WhatsApp not connected' });
+    }
+
+    const today = new Date();
+    const dateStr = today.toISOString().split('T')[0];
+    const calendarUrl = `${EDGE_FUNCTION_BASE_URL}/calendar-data?date=${dateStr}`;
+
+    const calResp = await fetch(calendarUrl, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    if (!calResp.ok) {
+      return res.status(500).json({ error: 'Failed to fetch calendar data', status: calResp.status });
+    }
+
+    const calData = await calResp.json();
+
+    const todayGames = (calData.dates || []).filter((d: any) => d.game_date === dateStr);
+
+    if (todayGames.length === 0) {
+      return res.json({ success: true, message: 'No game today', sent: false });
+    }
+
+    for (const game of todayGames) {
+      const confirmed = (game.signups || []).filter((s: any) => s.status === 'confirmed');
+      const capacity = game.capacity || 9;
+      const spotsLeft = Math.max(capacity - confirmed.length, 0);
+      const tableName = game.table_name || 'Poker';
+
+      const gameDate = new Date(game.game_date + 'T12:00:00');
+      const month = gameDate.getMonth() + 1;
+      const day = gameDate.getDate();
+
+      let playerList = '';
+      confirmed.sort((a: any, b: any) => new Date(a.signed_up_at).getTime() - new Date(b.signed_up_at).getTime());
+      confirmed.forEach((s: any, i: number) => {
+        const firstName = (s.display_name || 'Unknown').split(' ')[0];
+        playerList += `${i + 1}. ${firstName}\n`;
+      });
+
+      const msg = `*Tonight's Game - ${month}/${day}*\n`
+        + `${tableName}\n`
+        + `${confirmed.length}/${capacity} players | ${spotsLeft} spots left\n\n`
+        + (playerList || 'No signups yet\n')
+        + `\nIf you need to cancel, click 10xx.com`;
+
+      await whatsapp.sendMessage(msg);
+    }
+
+    res.json({ success: true, message: 'Morning roster sent', games: todayGames.length });
+  } catch (error: any) {
+    console.error('Morning roster error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+
+  const whatsapp = getWhatsAppService();
+  whatsapp.autoReconnect().catch((err: any) => {
+    console.error('WhatsApp auto-reconnect error:', err);
+  });
+
+  if (EDGE_FUNCTION_BASE_URL && WEBHOOK_SECRET) {
+    const scheduler = getScheduler({
+      enabled: true,
+      dailyRosterTime: '0 6 * * *',
+      edgeFunctionUrl: EDGE_FUNCTION_BASE_URL,
+      webhookSecret: WEBHOOK_SECRET,
+    });
+    scheduler.startDailyRoster();
+  }
+});
