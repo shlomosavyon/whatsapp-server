@@ -76,7 +76,7 @@ app.post('/api/whatsapp/test', async (req, res) => {
   try {
     const whatsapp = getWhatsAppService();
     const { message } = req.body || {};
-const success = await whatsapp.sendMessage(message || "Test message from WhatsApp server");
+    const success = await whatsapp.sendMessage(message || "Test message from WhatsApp server");
     res.json({ success, message: 'Test message sent' });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -96,4 +96,43 @@ app.post('/api/webhook/player-cancelled', verifyWebhookSecret, async (req, res) 
       cancelledPlayerName,
       promotedPlayerName,
       remainingSpots,
-      currentCount
+      currentCount,
+      maxPlayers
+    );
+
+    const success = await whatsapp.sendMessage(message);
+    res.json({ success, message: 'Notification sent' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/webhook/player-signup', verifyWebhookSecret, async (req, res) => {
+  try {
+    const { playerName, currentCount, maxPlayers } = req.body;
+
+    const whatsapp = getWhatsAppService();
+    if (!whatsapp.getConnectionStatus()) {
+      return res.status(503).json({ error: 'WhatsApp not connected' });
+    }
+
+    const message = notificationService.generateSignupNotification(
+      playerName,
+      currentCount,
+      maxPlayers
+    );
+
+    const success = await whatsapp.sendMessage(message);
+    res.json({ success, message: 'Notification sent' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/whatsapp/send-roster-now', verifyWebhookSecret, async (req, res) => {
+  try {
+    const scheduler = getScheduler();
+    await scheduler.triggerDailyRosterNow();
+    res.json({ success: true, message: 'Daily roster triggered' });
+  } catch (error: any) {
+    res.status(500).json({ error: error
