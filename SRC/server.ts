@@ -164,7 +164,7 @@ app.get('/api/cron/morning-roster', async (req, res) => {
       return res.status(500).json({ error: 'Failed to fetch calendar data', status: calResp.status });
     }
 
-    const calData = await calResp.json();
+    const calData: any = await calResp.json();
 
     const todayGames = (calData.dates || []).filter((d: any) => d.game_date === dateStr);
 
