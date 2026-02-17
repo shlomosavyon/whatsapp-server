@@ -139,6 +139,8 @@ app.post('/api/whatsapp/send-roster-now', verifyWebhookSecret, async (req, res) 
   }
 });
 
+// Cron endpoint for morning roster - called by cron-job.org at 6 AM
+// Uses a simple secret key in the URL to prevent abuse
 const CRON_SECRET = process.env.CRON_SECRET || 'fwk2026';
 app.get('/api/cron/morning-roster', async (req, res) => {
   try {
@@ -151,8 +153,9 @@ app.get('/api/cron/morning-roster', async (req, res) => {
       return res.status(503).json({ error: 'WhatsApp not connected' });
     }
 
+    // Fetch today's calendar data from Supabase edge function
     const today = new Date();
-    const dateStr = today.toISOString().split('T')[0];
+    const dateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
     const calendarUrl = `${EDGE_FUNCTION_BASE_URL}/calendar-data?date=${dateStr}`;
 
     const calResp = await fetch(calendarUrl, {
@@ -166,7 +169,8 @@ app.get('/api/cron/morning-roster', async (req, res) => {
 
     const calData: any = await calResp.json();
 
-    const todayGames = (calData.dates || []).filter((d: any) => d.game_date === dateStr);
+    // Find today's game(s)
+    const todayGames = (calData.dates || []).filter((d: any) => d.date === dateStr);
 
     if (todayGames.length === 0) {
       return res.json({ success: true, message: 'No game today', sent: false });
@@ -174,18 +178,19 @@ app.get('/api/cron/morning-roster', async (req, res) => {
 
     for (const game of todayGames) {
       const confirmed = (game.signups || []).filter((s: any) => s.status === 'confirmed');
-      const capacity = game.capacity || 9;
+      const capacity = game.max_players || 9;
       const spotsLeft = Math.max(capacity - confirmed.length, 0);
-      const tableName = game.table_name || 'Poker';
+      const tableName = game.table?.name || 'Poker';
 
-      const gameDate = new Date(game.game_date + 'T12:00:00');
+      // Format date as M/D
+      const gameDate = new Date(game.date + 'T12:00:00');
       const month = gameDate.getMonth() + 1;
       const day = gameDate.getDate();
 
       let playerList = '';
       confirmed.sort((a: any, b: any) => new Date(a.signed_up_at).getTime() - new Date(b.signed_up_at).getTime());
       confirmed.forEach((s: any, i: number) => {
-        const firstName = (s.display_name || 'Unknown').split(' ')[0];
+        const firstName = (s.nickname || 'Unknown').split(' ')[0];
         playerList += `${i + 1}. ${firstName}\n`;
       });
 
@@ -208,6 +213,7 @@ app.get('/api/cron/morning-roster', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 
+  // Auto-reconnect WhatsApp on server startup
   const whatsapp = getWhatsAppService();
   whatsapp.autoReconnect().catch((err: any) => {
     console.error('WhatsApp auto-reconnect error:', err);
