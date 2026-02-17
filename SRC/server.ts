@@ -14,6 +14,13 @@ app.use(express.static('.'));
 const EDGE_FUNCTION_BASE_URL = process.env.EDGE_FUNCTION_BASE_URL || 'https://ghpudjkbskkhjhtoedxa.supabase.co/functions/v1';
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "default-secret";
 
+// All registered players (first names for matching)
+const ALL_PLAYERS = [
+  'Avrum', 'Carl', 'Danny', 'David', 'Don', 'Dov',
+  'Itzik', 'Larry', 'Liron', 'Mark', 'Shlomo S',
+  'Shlomo T', 'Tom', 'Tomer', 'Yair', 'Zaken'
+];
+
 function verifyWebhookSecret(req: any, res: any, next: any) {
   const secret = req.headers["x-webhook-secret"];
   if (secret !== WEBHOOK_SECRET) {
@@ -140,7 +147,6 @@ app.post('/api/whatsapp/send-roster-now', verifyWebhookSecret, async (req, res) 
 });
 
 // Cron endpoint for morning roster - called by cron-job.org at 6 AM
-// Uses a simple secret key in the URL to prevent abuse
 const CRON_SECRET = process.env.CRON_SECRET || 'fwk2026';
 app.get('/api/cron/morning-roster', async (req, res) => {
   try {
@@ -153,9 +159,8 @@ app.get('/api/cron/morning-roster', async (req, res) => {
       return res.status(503).json({ error: 'WhatsApp not connected' });
     }
 
-    // Fetch today's calendar data from Supabase edge function
     const today = new Date();
-    const dateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
+    const dateStr = today.toISOString().split('T')[0];
     const calendarUrl = `${EDGE_FUNCTION_BASE_URL}/calendar-data?date=${dateStr}`;
 
     const calResp = await fetch(calendarUrl, {
@@ -168,8 +173,6 @@ app.get('/api/cron/morning-roster', async (req, res) => {
     }
 
     const calData: any = await calResp.json();
-
-    // Find today's game(s)
     const todayGames = (calData.dates || []).filter((d: any) => d.date === dateStr);
 
     if (todayGames.length === 0) {
@@ -182,7 +185,6 @@ app.get('/api/cron/morning-roster', async (req, res) => {
       const spotsLeft = Math.max(capacity - confirmed.length, 0);
       const tableName = game.table?.name || 'Poker';
 
-      // Format date as M/D
       const gameDate = new Date(game.date + 'T12:00:00');
       const month = gameDate.getMonth() + 1;
       const day = gameDate.getDate();
@@ -210,10 +212,96 @@ app.get('/api/cron/morning-roster', async (req, res) => {
   }
 });
 
+// Cron endpoint for noon reminder - called by cron-job.org at 12 PM
+app.get('/api/cron/noon-reminder', async (req, res) => {
+  try {
+    if (req.query.key !== CRON_SECRET) {
+      return res.status(401).json({ error: 'Invalid key' });
+    }
+
+    const whatsapp = getWhatsAppService();
+    if (!whatsapp.getConnectionStatus()) {
+      return res.status(503).json({ error: 'WhatsApp not connected' });
+    }
+
+    const today = new Date();
+    const dateStr = today.toISOString().split('T')[0];
+    const calendarUrl = `${EDGE_FUNCTION_BASE_URL}/calendar-data?date=${dateStr}`;
+
+    const calResp = await fetch(calendarUrl, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    if (!calResp.ok) {
+      return res.status(500).json({ error: 'Failed to fetch calendar data', status: calResp.status });
+    }
+
+    const calData: any = await calResp.json();
+    const todayGames = (calData.dates || []).filter((d: any) => d.date === dateStr);
+
+    if (todayGames.length === 0) {
+      return res.json({ success: true, message: 'No game today', sent: false });
+    }
+
+    for (const game of todayGames) {
+      const confirmed = (game.signups || []).filter((s: any) => s.status === 'confirmed');
+      const capacity = game.max_players || 9;
+      const spotsLeft = Math.max(capacity - confirmed.length, 0);
+      const tableName = game.table?.name || 'Poker';
+
+      const gameDate = new Date(game.date + 'T12:00:00');
+      const month = gameDate.getMonth() + 1;
+      const day = gameDate.getDate();
+
+      // Build signed-up player list
+      let playerList = '';
+      confirmed.sort((a: any, b: any) => new Date(a.signed_up_at).getTime() - new Date(b.signed_up_at).getTime());
+      confirmed.forEach((s: any, i: number) => {
+        const firstName = (s.nickname || 'Unknown').split(' ')[0];
+        playerList += `${i + 1}. ${firstName}\n`;
+      });
+
+      // Find players who haven't signed up
+      const signedUpNames = confirmed.map((s: any) => {
+        const nick = (s.nickname || '').trim();
+        return nick;
+      });
+
+      const notSignedUp = ALL_PLAYERS.filter(player => {
+        return !signedUpNames.some((signed: string) => {
+          const signedFirst = signed.split(' ')[0].toLowerCase();
+          const playerFirst = player.split(' ')[0].toLowerCase();
+          return signedFirst === playerFirst || signed.toLowerCase() === player.toLowerCase();
+        });
+      });
+
+      let msg = `*Noon Update - Tonight's Game ${month}/${day}*\n`
+        + `${tableName}\n`
+        + `${confirmed.length}/${capacity} players | ${spotsLeft} spots left\n\n`
+        + `*Signed up:*\n`
+        + (playerList || 'No signups yet\n');
+
+      if (notSignedUp.length > 0 && spotsLeft > 0) {
+        const names = notSignedUp.map(n => n.split(' ')[0]).join(', ');
+        msg += `\n${names} - we have ${spotsLeft} spot${spotsLeft === 1 ? '' : 's'} left! Sign up here: 10xx.com`;
+      } else if (spotsLeft === 0) {
+        msg += `\nTable is full! Waitlist available at 10xx.com`;
+      }
+
+      await whatsapp.sendMessage(msg);
+    }
+
+    res.json({ success: true, message: 'Noon reminder sent', games: todayGames.length });
+  } catch (error: any) {
+    console.error('Noon reminder error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 
-  // Auto-reconnect WhatsApp on server startup
   const whatsapp = getWhatsAppService();
   whatsapp.autoReconnect().catch((err: any) => {
     console.error('WhatsApp auto-reconnect error:', err);
