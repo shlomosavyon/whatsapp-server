@@ -12,8 +12,32 @@ interface GameData {
   maxPlayers: number;
 }
 
+interface RosterPlayer {
+  name: string;
+  signedUpAt: string;
+}
+
 export class NotificationService {
   private websiteUrl = 'https://friendswithkings.com/calendar';
+
+  private formatSignupTime(isoStr: string): string {
+    if (!isoStr) return '';
+    const dt = new Date(isoStr);
+    // Convert to EST (UTC-5)
+    const est = new Date(dt.getTime() - 5 * 60 * 60 * 1000);
+    const month = est.getMonth() + 1;
+    const day = est.getDate();
+    const hours = est.getHours().toString().padStart(2, '0');
+    const mins = est.getMinutes().toString().padStart(2, '0');
+    return `${month}/${day} ${hours}:${mins}`;
+  }
+
+  private formatGameDate(dateStr: string): string {
+    const d = new Date(dateStr + 'T12:00:00');
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${days[d.getDay()]} ${months[d.getMonth()]} ${d.getDate()}`;
+  }
 
   generateDailyRoster(game: GameData, allPlayers: Player[]): string {
     const dayName = new Date(game.date).toLocaleDateString('en-US', { weekday: 'long' });
@@ -103,30 +127,55 @@ export class NotificationService {
 
   generateCancellationNotification(
     cancelledPlayerName: string,
-    promotedPlayerName: string | null,
-    remainingSpots: number,
+    roster: RosterPlayer[],
     currentCount: number,
-    maxPlayers: number
+    maxPlayers: number,
+    gameDate: string,
+    remainingSpots: number,
+    promotedPlayerName: string | null
   ): string {
-    let message = `❌ *Player Update*\n\n`;
-    message += `${cancelledPlayerName} has dropped out. (${currentCount}/${maxPlayers})\n`;
-    
+    const dateFmt = this.formatGameDate(gameDate);
+    let message = `===========================\n`;
+    message += `❌ ${cancelledPlayerName} dropped out.\n`;
+    message += `Tonight's players (${currentCount}/${maxPlayers}) - ${dateFmt}:\n`;
+
+    roster.forEach((p, i) => {
+      message += `${i + 1}. ${p.name} - ${this.formatSignupTime(p.signedUpAt)}\n`;
+    });
+
     if (promotedPlayerName) {
-      message += `\n✅ ${promotedPlayerName} has been moved from waitlist!\n`;
-    } else if (remainingSpots > 0) {
-      message += `\n🎯 *${remainingSpots} seat${remainingSpots > 1 ? 's' : ''} now available!*\n`;
-      message += `\n👉 Sign up here: ${this.websiteUrl}`;
+      message += `\n✅ ${promotedPlayerName} moved up from waitlist!\n`;
     }
-    
+
+    if (remainingSpots > 0) {
+      message += `\n${remainingSpots} spot${remainingSpots > 1 ? 's' : ''} left — sign up: 10xx.com\n`;
+    }
+
+    message += `===========================`;
     return message;
   }
 
   generateSignupNotification(
     playerName: string,
+    roster: RosterPlayer[],
     currentCount: number,
-    maxPlayers: number
+    maxPlayers: number,
+    gameDate: string
   ): string {
-    return `🎰 *${playerName}* just signed up! (${currentCount}/${maxPlayers} players)`;
+    const dateFmt = this.formatGameDate(gameDate);
+    let message = `===========================\n`;
+    message += `🎰 ${playerName} signed up to tonight's game ${dateFmt}\n`;
+
+    roster.forEach((p, i) => {
+      message += `${i + 1}. ${p.name} - ${this.formatSignupTime(p.signedUpAt)}\n`;
+    });
+
+    if (currentCount >= maxPlayers) {
+      message += `\nTable is full!\n`;
+    }
+
+    message += `===========================`;
+    return message;
   }
 
   generateOneSeatLeftNotification(): string {
