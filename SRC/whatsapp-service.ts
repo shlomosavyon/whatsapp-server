@@ -14,6 +14,7 @@ class WhatsAppService {
     private groupId: string | null = null;
     private isConnected: boolean = false;
     private latestQR: string | null = null;
+    private groupCache: Map<string, string> = new Map();
 
     constructor(config: WhatsAppConfig) {
         this.config = config;
@@ -163,8 +164,20 @@ class WhatsAppService {
         });
     }
 
-    private async findGroupId(): Promise<void> {
-        if (!this.sock) return;
+    private async findGroupId(groupName?: string): Promise<string | null> {
+        if (!this.sock) return null;
+
+        const targetName = groupName || this.config.groupName;
+
+        // Check cache first
+        const cached = this.groupCache.get(targetName.toLowerCase());
+        if (cached) {
+            console.log(`Using cached group ID for "${targetName}": ${cached}`);
+            if (!groupName) {
+                this.groupId = cached;
+            }
+            return cached;
+        }
 
         try {
             const groups = await this.sock.groupFetchAllParticipating();
@@ -174,44 +187,73 @@ class WhatsAppService {
                 console.log(`- ${(group as any).subject} (ID: ${(group as any).id})`);
             });
 
+            // Cache ALL groups
+            Object.entries(groups).forEach(([id, group]) => {
+                const subject = (group as any).subject;
+                this.groupCache.set(subject.toLowerCase(), id);
+            });
+
             const targetGroup = Object.entries(groups).find(
-                ([, group]) => (group as any).subject.toLowerCase() === this.config.groupName.toLowerCase()
+                ([, group]) => (group as any).subject.toLowerCase() === targetName.toLowerCase()
             );
 
             if (targetGroup) {
-                this.groupId = targetGroup[0];
-                console.log(`Found group "${this.config.groupName}" with ID: ${this.groupId}`);
+                const foundId = targetGroup[0];
+                console.log(`Found group "${targetName}" with ID: ${foundId}`);
 
-                const configPath = path.join(this.config.sessionPath, 'group-config.json');
-                writeFileSync(configPath, JSON.stringify({ groupId: this.groupId }));
+                if (!groupName) {
+                    this.groupId = foundId;
+                    const configPath = path.join(this.config.sessionPath, 'group-config.json');
+                    writeFileSync(configPath, JSON.stringify({ groupId: this.groupId }));
+                }
+
+                return foundId;
             } else {
-                console.error(`Group "${this.config.groupName}" not found`);
+                console.error(`Group "${targetName}" not found`);
+                return null;
             }
         } catch (error) {
             console.error('Error fetching groups:', error);
+            return null;
         }
     }
 
-    async sendMessage(message: string): Promise<boolean> {
+    async sendMessage(message: string, groupName?: string): Promise<boolean> {
         if (!this.isConnected || !this.sock) {
             console.error('WhatsApp is not connected');
             return false;
         }
 
-        if (!this.groupId) {
-            const configPath = path.join(this.config.sessionPath, 'group-config.json');
-            if (existsSync(configPath)) {
-                const savedConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
-                this.groupId = savedConfig.groupId;
-            } else {
-                console.error('Group ID not found. Please reconnect.');
+        let targetGroupId: string | null = null;
+
+        if (groupName) {
+            // Sending to a specific group (e.g. "Calendar" or "Tomer Table")
+            targetGroupId = this.groupCache.get(groupName.toLowerCase()) || null;
+            if (!targetGroupId) {
+                targetGroupId = await this.findGroupId(groupName);
+            }
+            if (!targetGroupId) {
+                console.error(`Group "${groupName}" not found`);
                 return false;
             }
+        } else {
+            // Default group (Tomer Table)
+            if (!this.groupId) {
+                const configPath = path.join(this.config.sessionPath, 'group-config.json');
+                if (existsSync(configPath)) {
+                    const savedConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
+                    this.groupId = savedConfig.groupId;
+                } else {
+                    console.error('Group ID not found. Please reconnect.');
+                    return false;
+                }
+            }
+            targetGroupId = this.groupId;
         }
 
         try {
-            await this.sock.sendMessage(this.groupId!, { text: message });
-            console.log('Message sent successfully');
+            await this.sock.sendMessage(targetGroupId!, { text: message });
+            console.log(`Message sent successfully to ${groupName || this.config.groupName}`);
             return true;
         } catch (error) {
             console.error('Error sending message:', error);
