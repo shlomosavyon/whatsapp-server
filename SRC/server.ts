@@ -14,7 +14,6 @@ app.use(express.static('.'));
 const EDGE_FUNCTION_BASE_URL = process.env.EDGE_FUNCTION_BASE_URL || 'https://ghpudjkbskkhjhtoedxa.supabase.co/functions/v1';
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "default-secret";
 
-// All registered players (first names for matching)
 const ALL_PLAYERS = [
   'Avrum', 'Carl', 'Danny', 'David', 'Don', 'Dov',
   'Itzik', 'Larry', 'Liron', 'Mark', 'Shlomo S',
@@ -27,6 +26,49 @@ function verifyWebhookSecret(req: any, res: any, next: any) {
     return res.status(401).json({ error: "Unauthorized" });
   }
   next();
+}
+
+// Helper: fetch today's roster from calendar-data edge function
+async function fetchTodayRoster(): Promise<{ roster: any[], gameDate: string, maxPlayers: number, spotsLeft: number } | null> {
+  const today = new Date();
+  const dateStr = today.toISOString().split('T')[0];
+  const calendarUrl = `${EDGE_FUNCTION_BASE_URL}/calendar-data?date=${dateStr}`;
+
+  try {
+    const calResp = await fetch(calendarUrl, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!calResp.ok) return null;
+
+    const calData: any = await calResp.json();
+    const todayGames = (calData.dates || []).filter((d: any) => d.date === dateStr);
+    if (todayGames.length === 0) return null;
+
+    const game = todayGames[0];
+    const confirmed = (game.signups || []).filter((s: any) => s.status === 'confirmed');
+    confirmed.sort((a: any, b: any) => new Date(a.signed_up_at).getTime() - new Date(b.signed_up_at).getTime());
+
+    const roster = confirmed.map((s: any) => ({
+      name: (s.nickname || 'Unknown').split(' ')[0],
+      signedUpAt: s.signed_up_at
+    }));
+
+    const maxPlayers = game.max_players || 9;
+    const spotsLeft = Math.max(maxPlayers - confirmed.length, 0);
+
+    return { roster, gameDate: dateStr, maxPlayers, spotsLeft };
+  } catch (error) {
+    console.error('Error fetching today roster:', error);
+    return null;
+  }
+}
+
+// Helper: check if a date string is today
+function isToday(dateStr: string): boolean {
+  if (!dateStr) return true; // if no date provided, assume today
+  const today = new Date().toISOString().split('T')[0];
+  return dateStr === today;
 }
 
 app.get('/health', (req, res) => {
@@ -92,19 +134,32 @@ app.post('/api/whatsapp/test', async (req, res) => {
 
 app.post('/api/webhook/player-cancelled', verifyWebhookSecret, async (req, res) => {
   try {
-    const { cancelledPlayerName, promotedPlayerName, remainingSpots, currentCount, maxPlayers } = req.body;
+    const { cancelledPlayerName, promotedPlayerName, remainingSpots, currentCount, maxPlayers, date } = req.body;
+
+    // Only send WhatsApp for today's game
+    if (date && !isToday(date)) {
+      return res.json({ success: true, message: 'Future game - no WhatsApp sent', skipped: true });
+    }
 
     const whatsapp = getWhatsAppService();
     if (!whatsapp.getConnectionStatus()) {
       return res.status(503).json({ error: 'WhatsApp not connected' });
     }
 
+    // Fetch current roster for today
+    const todayData = await fetchTodayRoster();
+    const roster = todayData?.roster || [];
+    const gameDate = todayData?.gameDate || new Date().toISOString().split('T')[0];
+    const spots = todayData?.spotsLeft ?? remainingSpots;
+
     const message = notificationService.generateCancellationNotification(
       cancelledPlayerName,
-      promotedPlayerName,
-      remainingSpots,
+      roster,
       currentCount,
-      maxPlayers
+      maxPlayers,
+      gameDate,
+      spots,
+      promotedPlayerName
     );
 
     const success = await whatsapp.sendMessage(message);
@@ -116,17 +171,29 @@ app.post('/api/webhook/player-cancelled', verifyWebhookSecret, async (req, res) 
 
 app.post('/api/webhook/player-signup', verifyWebhookSecret, async (req, res) => {
   try {
-    const { playerName, currentCount, maxPlayers } = req.body;
+    const { playerName, currentCount, maxPlayers, date } = req.body;
+
+    // Only send WhatsApp for today's game
+    if (date && !isToday(date)) {
+      return res.json({ success: true, message: 'Future game - no WhatsApp sent', skipped: true });
+    }
 
     const whatsapp = getWhatsAppService();
     if (!whatsapp.getConnectionStatus()) {
       return res.status(503).json({ error: 'WhatsApp not connected' });
     }
 
+    // Fetch current roster for today
+    const todayData = await fetchTodayRoster();
+    const roster = todayData?.roster || [];
+    const gameDate = todayData?.gameDate || new Date().toISOString().split('T')[0];
+
     const message = notificationService.generateSignupNotification(
       playerName,
+      roster,
       currentCount,
-      maxPlayers
+      maxPlayers,
+      gameDate
     );
 
     const success = await whatsapp.sendMessage(message);
@@ -254,7 +321,6 @@ app.get('/api/cron/noon-reminder', async (req, res) => {
       const month = gameDate.getMonth() + 1;
       const day = gameDate.getDate();
 
-      // Build signed-up player list
       let playerList = '';
       confirmed.sort((a: any, b: any) => new Date(a.signed_up_at).getTime() - new Date(b.signed_up_at).getTime());
       confirmed.forEach((s: any, i: number) => {
@@ -262,7 +328,6 @@ app.get('/api/cron/noon-reminder', async (req, res) => {
         playerList += `${i + 1}. ${firstName}\n`;
       });
 
-      // Find players who haven't signed up
       const signedUpNames = confirmed.map((s: any) => {
         const nick = (s.nickname || '').trim();
         return nick;
