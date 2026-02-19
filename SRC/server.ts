@@ -254,7 +254,6 @@ app.get('/api/cron/morning-roster', async (req, res) => {
       const confirmed = (game.signups || []).filter((s: any) => s.status === 'confirmed');
       const capacity = game.max_players || 9;
       const spotsLeft = Math.max(capacity - confirmed.length, 0);
-      const tableName = game.table?.name || 'Poker';
 
       const gameDate = new Date(game.date + 'T12:00:00');
       const month = gameDate.getMonth() + 1;
@@ -267,11 +266,12 @@ app.get('/api/cron/morning-roster', async (req, res) => {
         playerList += `${i + 1}. ${firstName}\n`;
       });
 
-      const msg = `*Tonight's Game - ${month}/${day}*\n`
-        + `${tableName}\n`
+      const msg = `===================\n`
+        + `*Tonight's Game - ${month}/${day}*\n`
         + `${confirmed.length}/${capacity} players | ${spotsLeft} spots left\n\n`
         + (playerList || 'No signups yet\n')
-        + `\nIf you need to cancel, click 10xx.com`;
+        + `\nIf you need to cancel, click 10xx.com\n`
+        + `===================`;
 
       await whatsapp.sendMessage(msg);
     }
@@ -319,7 +319,6 @@ app.get('/api/cron/noon-reminder', async (req, res) => {
       const confirmed = (game.signups || []).filter((s: any) => s.status === 'confirmed');
       const capacity = game.max_players || 9;
       const spotsLeft = Math.max(capacity - confirmed.length, 0);
-      const tableName = game.table?.name || 'Poker';
 
       const gameDate = new Date(game.date + 'T12:00:00');
       const month = gameDate.getMonth() + 1;
@@ -345,8 +344,8 @@ app.get('/api/cron/noon-reminder', async (req, res) => {
         });
       });
 
-      let msg = `*Noon Update - Tonight's Game ${month}/${day}*\n`
-        + `${tableName}\n`
+      let msg = `===================\n`
+        + `*Noon Update - Tonight's Game ${month}/${day}*\n`
         + `${confirmed.length}/${capacity} players | ${spotsLeft} spots left\n\n`
         + `*Signed up:*\n`
         + (playerList || 'No signups yet\n');
@@ -357,6 +356,8 @@ app.get('/api/cron/noon-reminder', async (req, res) => {
       } else if (spotsLeft === 0) {
         msg += `\nTable is full! Waitlist available at 10xx.com`;
       }
+
+      msg += `\n===================`;
 
       await whatsapp.sendMessage(msg);
     }
@@ -375,14 +376,4 @@ app.listen(PORT, () => {
   whatsapp.autoReconnect().catch((err: any) => {
     console.error('WhatsApp auto-reconnect error:', err);
   });
-
-  if (EDGE_FUNCTION_BASE_URL && WEBHOOK_SECRET) {
-    const scheduler = getScheduler({
-      enabled: true,
-      dailyRosterTime: '0 6 * * *',
-      edgeFunctionUrl: EDGE_FUNCTION_BASE_URL,
-      webhookSecret: WEBHOOK_SECRET,
-    });
-    scheduler.startDailyRoster();
-  }
 });
