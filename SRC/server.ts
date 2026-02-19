@@ -75,6 +75,16 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Monitoring endpoint - returns error when WhatsApp is disconnected
+// Used by cron-job.org to send email alerts
+app.get('/api/whatsapp/health', (req, res) => {
+  const whatsapp = getWhatsAppService();
+  if (whatsapp.getConnectionStatus()) {
+    res.json({ status: 'ok', whatsapp: 'connected' });
+  } else {
+    res.status(503).json({ status: 'error', whatsapp: 'disconnected' });
+  }
+});
 app.post('/api/whatsapp/connect', async (req, res) => {
   try {
     const whatsapp = getWhatsAppService();
