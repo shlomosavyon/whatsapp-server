@@ -15,6 +15,9 @@ class WhatsAppService {
     private isConnected: boolean = false;
     private latestQR: string | null = null;
     private groupCache: Map<string, string> = new Map();
+    private keepAliveInterval: ReturnType<typeof setInterval> | null = null;
+    private reconnectAttempts: number = 0;
+    private maxReconnectAttempts: number = 10;
 
     constructor(config: WhatsAppConfig) {
         this.config = config;
@@ -41,6 +44,27 @@ class WhatsAppService {
         return this.latestQR;
     }
 
+    private startKeepAlive(): void {
+        this.stopKeepAlive();
+        this.keepAliveInterval = setInterval(async () => {
+            if (this.sock && this.isConnected) {
+                try {
+                    await this.sock.sendPresenceUpdate('available');
+                } catch (e) {
+                    console.log('[KeepAlive] Presence update failed, connection may be lost');
+                }
+            }
+        }, 25 * 1000);
+        console.log('[KeepAlive] Started - pinging every 25 seconds');
+    }
+
+    private stopKeepAlive(): void {
+        if (this.keepAliveInterval) {
+            clearInterval(this.keepAliveInterval);
+            this.keepAliveInterval = null;
+        }
+    }
+
     async connect(): Promise<void> {
         if (this.sock) {
             try {
@@ -55,6 +79,8 @@ class WhatsAppService {
 
         this.latestQR = null;
         this.isConnected = false;
+        this.stopKeepAlive();
+        this.reconnectAttempts = 0;
 
         this.clearSession();
 
@@ -67,9 +93,16 @@ class WhatsAppService {
             auth: state,
             version,
             printQRInTerminal: false,
+            keepAliveIntervalMs: 30000,
+            connectTimeoutMs: 60000,
         });
 
         this.sock.ev.on('creds.update', saveCreds);
+        this.setupConnectionHandler(version);
+    }
+
+    private setupConnectionHandler(version: number[]): void {
+        if (!this.sock) return;
 
         this.sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
@@ -80,36 +113,46 @@ class WhatsAppService {
             }
 
             if (connection === 'close') {
+                this.isConnected = false;
+                this.stopKeepAlive();
                 const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
                 const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
                 console.log('Connection closed. Status code:', statusCode, 'Reconnecting:', shouldReconnect);
 
-                if (shouldReconnect) {
-                    console.log('Auto-reconnecting...');
-                    const { state: newState, saveCreds: newSaveCreds } = await useMultiFileAuthState(this.config.sessionPath);
-                    this.sock = makeWASocket({
-                        auth: newState,
-                        version,
-                        printQRInTerminal: false,
-                    });
-                    this.sock.ev.on('creds.update', newSaveCreds);
-                    this.sock.ev.on('connection.update', async (u) => {
-                        if (u.connection === 'open') {
-                            console.log('Reconnected successfully');
-                            this.isConnected = true;
-                            await this.findGroupId();
-                        } else if (u.connection === 'close') {
-                            console.log('Reconnect failed');
-                            this.isConnected = false;
+                if (shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
+                    this.reconnectAttempts++;
+                    const delay = Math.min(3000 * Math.pow(2, this.reconnectAttempts - 1), 60000);
+                    console.log(`[Reconnect] Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay/1000}s...`);
+
+                    setTimeout(async () => {
+                        try {
+                            const { state: newState, saveCreds: newSaveCreds } = await useMultiFileAuthState(this.config.sessionPath);
+                            this.sock = makeWASocket({
+                                auth: newState,
+                                version,
+                                printQRInTerminal: false,
+                                keepAliveIntervalMs: 30000,
+                                connectTimeoutMs: 60000,
+                            });
+                            this.sock.ev.on('creds.update', newSaveCreds);
+                            this.setupConnectionHandler(version);
+                        } catch (err) {
+                            console.error('[Reconnect] Failed to create new socket:', err);
                         }
-                    });
+                    }, delay);
+                } else if (!shouldReconnect) {
+                    console.log('Logged out. QR scan needed via /api/whatsapp/connect');
+                    this.isConnected = false;
                 } else {
+                    console.log(`[Reconnect] Max attempts (${this.maxReconnectAttempts}) reached. QR scan may be needed.`);
                     this.isConnected = false;
                 }
             } else if (connection === 'open') {
                 console.log('WhatsApp connection established');
                 this.isConnected = true;
                 this.latestQR = null;
+                this.reconnectAttempts = 0;
+                this.startKeepAlive();
                 await this.findGroupId();
             }
         });
@@ -124,6 +167,7 @@ class WhatsAppService {
         console.log('Found saved WhatsApp session, auto-reconnecting...');
         this.isConnected = false;
         this.latestQR = null;
+        this.reconnectAttempts = 0;
 
         const { state, saveCreds } = await useMultiFileAuthState(this.config.sessionPath);
         const { version } = await fetchLatestBaileysVersion();
@@ -132,6 +176,8 @@ class WhatsAppService {
             auth: state,
             version,
             printQRInTerminal: false,
+            keepAliveIntervalMs: 30000,
+            connectTimeoutMs: 60000,
         });
 
         this.sock.ev.on('creds.update', saveCreds);
@@ -145,19 +191,25 @@ class WhatsAppService {
             }
 
             if (connection === 'open') {
-                console.log('WhatsApp auto-reconnected successfully');
+                console.log('WhatsApp auto-reconnected successfully!');
                 this.isConnected = true;
+                this.reconnectAttempts = 0;
+                this.startKeepAlive();
                 await this.findGroupId();
             }
 
             if (connection === 'close') {
+                this.isConnected = false;
+                this.stopKeepAlive();
                 const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
                 const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-                if (shouldReconnect) {
-                    console.log('Connection lost, retrying in 5 seconds...');
-                    setTimeout(() => this.autoReconnect(), 5000);
+                if (shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
+                    this.reconnectAttempts++;
+                    const delay = Math.min(5000 * Math.pow(2, this.reconnectAttempts - 1), 60000);
+                    console.log(`[Auto-reconnect] Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay/1000}s...`);
+                    setTimeout(() => this.autoReconnect(), delay);
                 } else {
-                    console.log('Logged out. QR scan needed via /api/whatsapp/connect');
+                    console.log('Logged out or max retries reached. QR scan needed via /api/whatsapp/connect');
                     this.isConnected = false;
                 }
             }
@@ -169,7 +221,6 @@ class WhatsAppService {
 
         const targetName = groupName || this.config.groupName;
 
-        // Check cache first
         const cached = this.groupCache.get(targetName.toLowerCase());
         if (cached) {
             console.log(`Using cached group ID for "${targetName}": ${cached}`);
@@ -187,7 +238,6 @@ class WhatsAppService {
                 console.log(`- ${(group as any).subject} (ID: ${(group as any).id})`);
             });
 
-            // Cache ALL groups
             Object.entries(groups).forEach(([id, group]) => {
                 const subject = (group as any).subject;
                 this.groupCache.set(subject.toLowerCase(), id);
@@ -227,7 +277,6 @@ class WhatsAppService {
         let targetGroupId: string | null = null;
 
         if (groupName) {
-            // Sending to a specific group (e.g. "Calendar" or "Tomer Table")
             targetGroupId = this.groupCache.get(groupName.toLowerCase()) || null;
             if (!targetGroupId) {
                 targetGroupId = await this.findGroupId(groupName);
@@ -237,7 +286,6 @@ class WhatsAppService {
                 return false;
             }
         } else {
-            // Default group (Tomer Table)
             if (!this.groupId) {
                 const configPath = path.join(this.config.sessionPath, 'group-config.json');
                 if (existsSync(configPath)) {
@@ -270,6 +318,7 @@ class WhatsAppService {
     }
 
     async disconnect(): Promise<void> {
+        this.stopKeepAlive();
         if (this.sock) {
             try {
                 await this.sock.logout();
