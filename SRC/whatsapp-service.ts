@@ -91,7 +91,7 @@ class WhatsAppService {
 
         this.sock = makeWASocket({
             auth: state,
-            version,
+            version: version as any,
             printQRInTerminal: false,
             keepAliveIntervalMs: 30000,
             connectTimeoutMs: 60000,
@@ -101,7 +101,7 @@ class WhatsAppService {
         this.setupConnectionHandler(version);
     }
 
-    private setupConnectionHandler(version: number[]): void {
+    private setupConnectionHandler(version: any): void {
         if (!this.sock) return;
 
         this.sock.ev.on('connection.update', async (update) => {
@@ -129,7 +129,7 @@ class WhatsAppService {
                             const { state: newState, saveCreds: newSaveCreds } = await useMultiFileAuthState(this.config.sessionPath);
                             this.sock = makeWASocket({
                                 auth: newState,
-                                version,
+                                version: version as any,
                                 printQRInTerminal: false,
                                 keepAliveIntervalMs: 30000,
                                 connectTimeoutMs: 60000,
@@ -174,7 +174,7 @@ class WhatsAppService {
 
         this.sock = makeWASocket({
             auth: state,
-            version,
+            version: version as any,
             printQRInTerminal: false,
             keepAliveIntervalMs: 30000,
             connectTimeoutMs: 60000,
