@@ -85,6 +85,7 @@ app.get('/api/whatsapp/health', (req, res) => {
     res.status(503).json({ status: 'error', whatsapp: 'disconnected' });
   }
 });
+
 app.post('/api/whatsapp/connect', async (req, res) => {
   try {
     const whatsapp = getWhatsAppService();
@@ -228,6 +229,7 @@ app.post('/api/whatsapp/send-roster-now', verifyWebhookSecret, async (req, res) 
 });
 
 // Cron endpoint for morning roster - called by cron-job.org at 6 AM
+// Add &group=Calendar to test to Calendar group
 const CRON_SECRET = process.env.CRON_SECRET || 'fwk2026';
 app.get('/api/cron/morning-roster', async (req, res) => {
   try {
@@ -239,6 +241,9 @@ app.get('/api/cron/morning-roster', async (req, res) => {
     if (!whatsapp.getConnectionStatus()) {
       return res.status(503).json({ error: 'WhatsApp not connected' });
     }
+
+    // Optional: send to a specific group for testing (e.g. &group=Calendar)
+    const targetGroup = req.query.group as string | undefined;
 
     const today = new Date();
     const dateStr = today.toISOString().split('T')[0];
@@ -261,7 +266,9 @@ app.get('/api/cron/morning-roster', async (req, res) => {
     }
 
     for (const game of todayGames) {
-      const confirmed = (game.signups || []).filter((s: any) => s.status === 'confirmed');
+      const allSignups = (game.signups || []);
+      const confirmed = allSignups.filter((s: any) => s.status === 'confirmed');
+      const waitlisted = allSignups.filter((s: any) => s.status === 'waitlist' || s.status === 'waiting');
       const capacity = game.max_players || 9;
       const spotsLeft = Math.max(capacity - confirmed.length, 0);
 
@@ -276,17 +283,28 @@ app.get('/api/cron/morning-roster', async (req, res) => {
         playerList += `${i + 1}. ${firstName}\n`;
       });
 
+      let waitlistText = '';
+      if (waitlisted.length > 0) {
+        waitlisted.sort((a: any, b: any) => new Date(a.signed_up_at).getTime() - new Date(b.signed_up_at).getTime());
+        waitlistText = `\n*Waitlist:*\n`;
+        waitlisted.forEach((s: any, i: number) => {
+          const firstName = (s.nickname || 'Unknown').split(' ')[0];
+          waitlistText += `${i + 1}. ${firstName}\n`;
+        });
+      }
+
       const msg = `===================\n`
         + `*Tonight's Game - ${month}/${day}*\n`
         + `${confirmed.length}/${capacity} players | ${spotsLeft} spots left\n\n`
         + (playerList || 'No signups yet\n')
+        + waitlistText
         + `\nIf you need to cancel, click 10xx.com\n`
         + `===================`;
 
-      await whatsapp.sendMessage(msg);
+      await whatsapp.sendMessage(msg, targetGroup || undefined);
     }
 
-    res.json({ success: true, message: 'Morning roster sent', games: todayGames.length });
+    res.json({ success: true, message: `Morning roster sent to ${targetGroup || 'default group'}`, games: todayGames.length });
   } catch (error: any) {
     console.error('Morning roster error:', error);
     res.status(500).json({ error: error.message });
@@ -294,6 +312,7 @@ app.get('/api/cron/morning-roster', async (req, res) => {
 });
 
 // Cron endpoint for noon reminder - called by cron-job.org at 12 PM
+// Add &group=Calendar to test to Calendar group
 app.get('/api/cron/noon-reminder', async (req, res) => {
   try {
     if (req.query.key !== CRON_SECRET) {
@@ -304,6 +323,9 @@ app.get('/api/cron/noon-reminder', async (req, res) => {
     if (!whatsapp.getConnectionStatus()) {
       return res.status(503).json({ error: 'WhatsApp not connected' });
     }
+
+    // Optional: send to a specific group for testing (e.g. &group=Calendar)
+    const targetGroup = req.query.group as string | undefined;
 
     const today = new Date();
     const dateStr = today.toISOString().split('T')[0];
@@ -326,7 +348,9 @@ app.get('/api/cron/noon-reminder', async (req, res) => {
     }
 
     for (const game of todayGames) {
-      const confirmed = (game.signups || []).filter((s: any) => s.status === 'confirmed');
+      const allSignups = (game.signups || []);
+      const confirmed = allSignups.filter((s: any) => s.status === 'confirmed');
+      const waitlisted = allSignups.filter((s: any) => s.status === 'waitlist' || s.status === 'waiting');
       const capacity = game.max_players || 9;
       const spotsLeft = Math.max(capacity - confirmed.length, 0);
 
@@ -354,11 +378,22 @@ app.get('/api/cron/noon-reminder', async (req, res) => {
         });
       });
 
+      let waitlistText = '';
+      if (waitlisted.length > 0) {
+        waitlisted.sort((a: any, b: any) => new Date(a.signed_up_at).getTime() - new Date(b.signed_up_at).getTime());
+        waitlistText = `\n*Waitlist:*\n`;
+        waitlisted.forEach((s: any, i: number) => {
+          const firstName = (s.nickname || 'Unknown').split(' ')[0];
+          waitlistText += `${i + 1}. ${firstName}\n`;
+        });
+      }
+
       let msg = `===================\n`
         + `*Noon Update - Tonight's Game ${month}/${day}*\n`
         + `${confirmed.length}/${capacity} players | ${spotsLeft} spots left\n\n`
         + `*Signed up:*\n`
-        + (playerList || 'No signups yet\n');
+        + (playerList || 'No signups yet\n')
+        + waitlistText;
 
       if (notSignedUp.length > 0 && spotsLeft > 0) {
         const names = notSignedUp.map(n => n.split(' ')[0]).join(', ');
@@ -369,10 +404,10 @@ app.get('/api/cron/noon-reminder', async (req, res) => {
 
       msg += `\n===================`;
 
-      await whatsapp.sendMessage(msg);
+      await whatsapp.sendMessage(msg, targetGroup || undefined);
     }
 
-    res.json({ success: true, message: 'Noon reminder sent', games: todayGames.length });
+    res.json({ success: true, message: `Noon reminder sent to ${targetGroup || 'default group'}`, games: todayGames.length });
   } catch (error: any) {
     console.error('Noon reminder error:', error);
     res.status(500).json({ error: error.message });
@@ -386,4 +421,16 @@ app.listen(PORT, () => {
   whatsapp.autoReconnect().catch((err: any) => {
     console.error('WhatsApp auto-reconnect error:', err);
   });
+
+  // Auto-healing: check WhatsApp connection every 2 minutes
+  // If disconnected, try to reconnect automatically
+  setInterval(() => {
+    const wa = getWhatsAppService();
+    if (!wa.getConnectionStatus()) {
+      console.log('[Auto-heal] WhatsApp disconnected, attempting auto-reconnect...');
+      wa.autoReconnect().catch((err: any) => {
+        console.error('[Auto-heal] Auto-reconnect failed:', err);
+      });
+    }
+  }, 2 * 60 * 1000); // every 2 minutes
 });
