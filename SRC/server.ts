@@ -86,6 +86,43 @@ app.get('/api/whatsapp/health', (req, res) => {
   }
 });
 
+// DEBUG endpoint - shows raw data so we can see why waitlist isn't working
+app.get('/api/debug/roster', async (req, res) => {
+  try {
+    const today = new Date();
+    const dateStr = today.toISOString().split('T')[0];
+    const calendarUrl = `${EDGE_FUNCTION_BASE_URL}/calendar-data?date=${dateStr}`;
+    const calResp = await fetch(calendarUrl, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+    const calData: any = await calResp.json();
+    const todayGames = (calData.dates || []).filter((d: any) => d.date === dateStr);
+
+    if (todayGames.length === 0) {
+      return res.json({ message: 'No game today', dateStr, rawDates: calData.dates?.map((d: any) => d.date) });
+    }
+
+    const game = todayGames[0];
+    const allSignups = (game.signups || []).filter((s: any) => s.status === 'confirmed');
+    allSignups.sort((a: any, b: any) => new Date(a.signed_up_at).getTime() - new Date(b.signed_up_at).getTime());
+    const capacity = game.max_players || 9;
+    const playing = allSignups.slice(0, capacity);
+    const waitlisted = allSignups.slice(capacity);
+
+    res.json({
+      dateStr,
+      max_players: game.max_players,
+      capacity,
+      total_confirmed: allSignups.length,
+      playing_count: playing.length,
+      waitlist_count: waitlisted.length,
+      playing: playing.map((s: any) => ({ nickname: s.nickname, status: s.status, signed_up_at: s.signed_up_at })),
+      waitlisted: waitlisted.map((s: any) => ({ nickname: s.nickname, status: s.status, signed_up_at: s.signed_up_at })),
+      all_statuses: (game.signups || []).map((s: any) => ({ nickname: s.nickname, status: s.status }))
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/whatsapp/connect', async (req, res) => {
   try {
     const whatsapp = getWhatsAppService();
@@ -266,21 +303,20 @@ app.get('/api/cron/morning-roster', async (req, res) => {
     }
 
     for (const game of todayGames) {
-      const allSignups = (game.signups || []).filter((s: any) => s.status === 'confirmed');
-      allSignups.sort((a: any, b: any) => new Date(a.signed_up_at).getTime() - new Date(b.signed_up_at).getTime());
+      const confirmed = (game.signups || []).filter((s: any) => s.status === 'confirmed');
+      confirmed.sort((a: any, b: any) => new Date(a.signed_up_at).getTime() - new Date(b.signed_up_at).getTime());
       const capacity = game.max_players || 9;
+      const spotsLeft = Math.max(capacity - confirmed.length, 0);
 
-      // First N players are playing, rest are on waitlist
-      const playing = allSignups.slice(0, capacity);
-      const waitlisted = allSignups.slice(capacity);
-      const spotsLeft = Math.max(capacity - playing.length, 0);
+      // Waitlist comes from the API's separate waitlist array
+      const waitlisted = game.waitlist || [];
 
       const gameDate = new Date(game.date + 'T12:00:00');
       const month = gameDate.getMonth() + 1;
       const day = gameDate.getDate();
 
       let playerList = '';
-      playing.forEach((s: any, i: number) => {
+      confirmed.forEach((s: any, i: number) => {
         const firstName = (s.nickname || 'Unknown').split(' ')[0];
         playerList += `${i + 1}. ${firstName}\n`;
       });
@@ -296,7 +332,7 @@ app.get('/api/cron/morning-roster', async (req, res) => {
 
       const msg = `===================\n`
         + `*Tonight's Game - ${month}/${day}*\n`
-        + `${playing.length}/${capacity} players | ${spotsLeft} spots left\n\n`
+        + `${confirmed.length}/${capacity} players | ${spotsLeft} spots left\n\n`
         + (playerList || 'No signups yet\n')
         + waitlistText
         + `\nIf you need to cancel, click 10xx.com\n`
@@ -349,26 +385,25 @@ app.get('/api/cron/noon-reminder', async (req, res) => {
     }
 
     for (const game of todayGames) {
-      const allSignups = (game.signups || []).filter((s: any) => s.status === 'confirmed');
-      allSignups.sort((a: any, b: any) => new Date(a.signed_up_at).getTime() - new Date(b.signed_up_at).getTime());
+      const confirmed = (game.signups || []).filter((s: any) => s.status === 'confirmed');
+      confirmed.sort((a: any, b: any) => new Date(a.signed_up_at).getTime() - new Date(b.signed_up_at).getTime());
       const capacity = game.max_players || 9;
+      const spotsLeft = Math.max(capacity - confirmed.length, 0);
 
-      // First N players are playing, rest are on waitlist
-      const playing = allSignups.slice(0, capacity);
-      const waitlisted = allSignups.slice(capacity);
-      const spotsLeft = Math.max(capacity - playing.length, 0);
+      // Waitlist comes from the API's separate waitlist array
+      const waitlisted = game.waitlist || [];
 
       const gameDate = new Date(game.date + 'T12:00:00');
       const month = gameDate.getMonth() + 1;
       const day = gameDate.getDate();
 
       let playerList = '';
-      playing.forEach((s: any, i: number) => {
+      confirmed.forEach((s: any, i: number) => {
         const firstName = (s.nickname || 'Unknown').split(' ')[0];
         playerList += `${i + 1}. ${firstName}\n`;
       });
 
-      const signedUpNames = allSignups.map((s: any) => {
+      const signedUpNames = confirmed.map((s: any) => {
         const nick = (s.nickname || '').trim();
         return nick;
       });
@@ -392,7 +427,7 @@ app.get('/api/cron/noon-reminder', async (req, res) => {
 
       let msg = `===================\n`
         + `*Noon Update - Tonight's Game ${month}/${day}*\n`
-        + `${playing.length}/${capacity} players | ${spotsLeft} spots left\n\n`
+        + `${confirmed.length}/${capacity} players | ${spotsLeft} spots left\n\n`
         + `*Signed up:*\n`
         + (playerList || 'No signups yet\n')
         + waitlistText;
