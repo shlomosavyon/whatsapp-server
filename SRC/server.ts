@@ -251,26 +251,28 @@ app.get('/api/cron/morning-roster', async (req, res) => {
     }
 
     for (const game of todayGames) {
-      const allSignups = (game.signups || []);
-      const confirmed = allSignups.filter((s: any) => s.status === 'confirmed');
-      const waitlisted = allSignups.filter((s: any) => s.status === 'waitlist' || s.status === 'waiting' || s.status === 'waitlisted');
+      const allSignups = (game.signups || []).filter((s: any) => s.status === 'confirmed');
+      allSignups.sort((a: any, b: any) => new Date(a.signed_up_at).getTime() - new Date(b.signed_up_at).getTime());
+
       const capacity = game.max_players || 9;
-      const spotsLeft = Math.max(capacity - confirmed.length, 0);
+
+      // First N players are playing, rest are on waitlist
+      const playing = allSignups.slice(0, capacity);
+      const waitlisted = allSignups.slice(capacity);
+      const spotsLeft = Math.max(capacity - playing.length, 0);
 
       const gameDate = new Date(game.date + 'T12:00:00');
       const month = gameDate.getMonth() + 1;
       const day = gameDate.getDate();
 
       let playerList = '';
-      confirmed.sort((a: any, b: any) => new Date(a.signed_up_at).getTime() - new Date(b.signed_up_at).getTime());
-      confirmed.forEach((s: any, i: number) => {
+      playing.forEach((s: any, i: number) => {
         const firstName = (s.nickname || 'Unknown').split(' ')[0];
         playerList += `${i + 1}. ${firstName}\n`;
       });
 
       let waitlistText = '';
       if (waitlisted.length > 0) {
-        waitlisted.sort((a: any, b: any) => new Date(a.signed_up_at).getTime() - new Date(b.signed_up_at).getTime());
         waitlistText = `\n*Waitlist:*\n`;
         waitlisted.forEach((s: any, i: number) => {
           const firstName = (s.nickname || 'Unknown').split(' ')[0];
@@ -280,7 +282,7 @@ app.get('/api/cron/morning-roster', async (req, res) => {
 
       const msg = `===================\n`
         + `*Tonight's Game - ${month}/${day}*\n`
-        + `${confirmed.length}/${capacity} players | ${spotsLeft} spots left\n\n`
+        + `${playing.length}/${capacity} players | ${spotsLeft} spots left\n\n`
         + (playerList || 'No signups yet\n')
         + waitlistText
         + `\nIf you need to cancel, click 10xx.com\n`
@@ -330,24 +332,27 @@ app.get('/api/cron/noon-reminder', async (req, res) => {
     }
 
     for (const game of todayGames) {
-      const allSignups = (game.signups || []);
-      const confirmed = allSignups.filter((s: any) => s.status === 'confirmed');
-      const waitlisted = allSignups.filter((s: any) => s.status === 'waitlist' || s.status === 'waiting' || s.status === 'waitlisted');
+      const allSignups = (game.signups || []).filter((s: any) => s.status === 'confirmed');
+      allSignups.sort((a: any, b: any) => new Date(a.signed_up_at).getTime() - new Date(b.signed_up_at).getTime());
+
       const capacity = game.max_players || 9;
-      const spotsLeft = Math.max(capacity - confirmed.length, 0);
+
+      // First N players are playing, rest are on waitlist
+      const playing = allSignups.slice(0, capacity);
+      const waitlisted = allSignups.slice(capacity);
+      const spotsLeft = Math.max(capacity - playing.length, 0);
 
       const gameDate = new Date(game.date + 'T12:00:00');
       const month = gameDate.getMonth() + 1;
       const day = gameDate.getDate();
 
       let playerList = '';
-      confirmed.sort((a: any, b: any) => new Date(a.signed_up_at).getTime() - new Date(b.signed_up_at).getTime());
-      confirmed.forEach((s: any, i: number) => {
+      playing.forEach((s: any, i: number) => {
         const firstName = (s.nickname || 'Unknown').split(' ')[0];
         playerList += `${i + 1}. ${firstName}\n`;
       });
 
-      const signedUpNames = confirmed.map((s: any) => {
+      const signedUpNames = allSignups.map((s: any) => {
         const nick = (s.nickname || '').trim();
         return nick;
       });
@@ -362,7 +367,6 @@ app.get('/api/cron/noon-reminder', async (req, res) => {
 
       let waitlistText = '';
       if (waitlisted.length > 0) {
-        waitlisted.sort((a: any, b: any) => new Date(a.signed_up_at).getTime() - new Date(b.signed_up_at).getTime());
         waitlistText = `\n*Waitlist:*\n`;
         waitlisted.forEach((s: any, i: number) => {
           const firstName = (s.nickname || 'Unknown').split(' ')[0];
@@ -372,7 +376,7 @@ app.get('/api/cron/noon-reminder', async (req, res) => {
 
       let msg = `===================\n`
         + `*Noon Update - Tonight's Game ${month}/${day}*\n`
-        + `${confirmed.length}/${capacity} players | ${spotsLeft} spots left\n\n`
+        + `${playing.length}/${capacity} players | ${spotsLeft} spots left\n\n`
         + `*Signed up:*\n`
         + (playerList || 'No signups yet\n')
         + waitlistText;
