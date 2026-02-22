@@ -28,6 +28,7 @@ function verifyWebhookSecret(req: any, res: any, next: any) {
   next();
 }
 
+// Helper: fetch today's roster from calendar-data edge function
 async function fetchTodayRoster(): Promise<{ roster: any[], gameDate: string, maxPlayers: number, spotsLeft: number } | null> {
   const today = new Date();
   const dateStr = today.toISOString().split('T')[0];
@@ -63,8 +64,9 @@ async function fetchTodayRoster(): Promise<{ roster: any[], gameDate: string, ma
   }
 }
 
+// Helper: check if a date string is today
 function isToday(dateStr: string): boolean {
-  if (!dateStr) return true;
+  if (!dateStr) return true; // if no date provided, assume today
   const today = new Date().toISOString().split('T')[0];
   return dateStr === today;
 }
@@ -73,6 +75,8 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Monitoring endpoint - returns error when WhatsApp is disconnected
+// Used by cron-job.org to send email alerts
 app.get('/api/whatsapp/health', (req, res) => {
   const whatsapp = getWhatsAppService();
   if (whatsapp.getConnectionStatus()) {
@@ -128,6 +132,10 @@ app.post('/api/whatsapp/disconnect', async (req, res) => {
   }
 });
 
+// THIS IS THE ENDPOINT LOVABLE CALLS TO SEND MESSAGES
+// Accepts: { message: string, group?: string }
+// If group is provided (e.g. "Calendar" or "Tomer Table"), sends to that group
+// If group is omitted, sends to the default group (Tomer Table)
 app.post('/api/whatsapp/test', async (req, res) => {
   try {
     const whatsapp = getWhatsAppService();
@@ -143,6 +151,7 @@ app.post('/api/webhook/player-cancelled', verifyWebhookSecret, async (req, res) 
   try {
     const { cancelledPlayerName, promotedPlayerName, remainingSpots, currentCount, maxPlayers, date } = req.body;
 
+    // Only send WhatsApp for today's game
     if (date && !isToday(date)) {
       return res.json({ success: true, message: 'Future game - no WhatsApp sent', skipped: true });
     }
@@ -152,6 +161,7 @@ app.post('/api/webhook/player-cancelled', verifyWebhookSecret, async (req, res) 
       return res.status(503).json({ error: 'WhatsApp not connected' });
     }
 
+    // Fetch current roster for today
     const todayData = await fetchTodayRoster();
     const roster = todayData?.roster || [];
     const gameDate = todayData?.gameDate || new Date().toISOString().split('T')[0];
@@ -178,6 +188,7 @@ app.post('/api/webhook/player-signup', verifyWebhookSecret, async (req, res) => 
   try {
     const { playerName, currentCount, maxPlayers, date } = req.body;
 
+    // Only send WhatsApp for today's game
     if (date && !isToday(date)) {
       return res.json({ success: true, message: 'Future game - no WhatsApp sent', skipped: true });
     }
@@ -187,6 +198,7 @@ app.post('/api/webhook/player-signup', verifyWebhookSecret, async (req, res) => 
       return res.status(503).json({ error: 'WhatsApp not connected' });
     }
 
+    // Fetch current roster for today
     const todayData = await fetchTodayRoster();
     const roster = todayData?.roster || [];
     const gameDate = todayData?.gameDate || new Date().toISOString().split('T')[0];
@@ -216,6 +228,8 @@ app.post('/api/whatsapp/send-roster-now', verifyWebhookSecret, async (req, res) 
   }
 });
 
+// Cron endpoint for morning roster - called by cron-job.org at 6 AM
+// Add &group=Calendar to test to Calendar group
 const CRON_SECRET = process.env.CRON_SECRET || 'fwk2026';
 app.get('/api/cron/morning-roster', async (req, res) => {
   try {
@@ -228,6 +242,7 @@ app.get('/api/cron/morning-roster', async (req, res) => {
       return res.status(503).json({ error: 'WhatsApp not connected' });
     }
 
+    // Optional: send to a specific group for testing (e.g. &group=Calendar)
     const targetGroup = req.query.group as string | undefined;
 
     const today = new Date();
@@ -253,7 +268,6 @@ app.get('/api/cron/morning-roster', async (req, res) => {
     for (const game of todayGames) {
       const allSignups = (game.signups || []).filter((s: any) => s.status === 'confirmed');
       allSignups.sort((a: any, b: any) => new Date(a.signed_up_at).getTime() - new Date(b.signed_up_at).getTime());
-
       const capacity = game.max_players || 9;
 
       // First N players are playing, rest are on waitlist
@@ -298,6 +312,8 @@ app.get('/api/cron/morning-roster', async (req, res) => {
   }
 });
 
+// Cron endpoint for noon reminder - called by cron-job.org at 12 PM
+// Add &group=Calendar to test to Calendar group
 app.get('/api/cron/noon-reminder', async (req, res) => {
   try {
     if (req.query.key !== CRON_SECRET) {
@@ -309,6 +325,7 @@ app.get('/api/cron/noon-reminder', async (req, res) => {
       return res.status(503).json({ error: 'WhatsApp not connected' });
     }
 
+    // Optional: send to a specific group for testing (e.g. &group=Calendar)
     const targetGroup = req.query.group as string | undefined;
 
     const today = new Date();
@@ -334,7 +351,6 @@ app.get('/api/cron/noon-reminder', async (req, res) => {
     for (const game of todayGames) {
       const allSignups = (game.signups || []).filter((s: any) => s.status === 'confirmed');
       allSignups.sort((a: any, b: any) => new Date(a.signed_up_at).getTime() - new Date(b.signed_up_at).getTime());
-
       const capacity = game.max_players || 9;
 
       // First N players are playing, rest are on waitlist
@@ -408,6 +424,8 @@ app.listen(PORT, () => {
     console.error('WhatsApp auto-reconnect error:', err);
   });
 
+  // Auto-healing: check WhatsApp connection every 2 minutes
+  // If disconnected, try to reconnect automatically
   setInterval(() => {
     const wa = getWhatsAppService();
     if (!wa.getConnectionStatus()) {
@@ -416,5 +434,5 @@ app.listen(PORT, () => {
         console.error('[Auto-heal] Auto-reconnect failed:', err);
       });
     }
-  }, 2 * 60 * 1000);
+  }, 2 * 60 * 1000); // every 2 minutes
 });
