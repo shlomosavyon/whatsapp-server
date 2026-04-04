@@ -14,6 +14,20 @@ app.use(express.static('.'));
 const EDGE_FUNCTION_BASE_URL = process.env.EDGE_FUNCTION_BASE_URL || 'https://ghpudjkbskkhjhtoedxa.supabase.co/functions/v1';
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "default-secret";
 
+// Deduplication: ignore identical webhook events within 30 seconds
+const recentEvents = new Map<string, number>();
+function isDuplicate(key: string): boolean {
+  const now = Date.now();
+  const last = recentEvents.get(key);
+  if (last && now - last < 30_000) return true;
+  recentEvents.set(key, now);
+  // Clean up old entries
+  for (const [k, t] of recentEvents) {
+    if (now - t > 30_000) recentEvents.delete(k);
+  }
+  return false;
+}
+
 const ALL_PLAYERS = [
   'Avrum', 'Carl', 'Danny', 'David', 'Don', 'Dov',
   'Itzik', 'Larry', 'Liron', 'Mark', 'Shlomo S',
@@ -181,6 +195,12 @@ app.post('/api/webhook/player-cancelled', verifyWebhookSecret, async (req, res) 
       return res.json({ success: true, message: 'Future game - no WhatsApp sent', skipped: true });
     }
 
+    const dedupKey = `cancelled:${cancelledPlayerName}:${date || 'today'}`;
+    if (isDuplicate(dedupKey)) {
+      console.log(`[Dedup] Skipping duplicate cancellation event for ${cancelledPlayerName}`);
+      return res.json({ success: true, message: 'Duplicate event ignored' });
+    }
+
     const whatsapp = getWhatsAppService();
     if (!whatsapp.getConnectionStatus()) {
       return res.status(503).json({ error: 'WhatsApp not connected' });
@@ -214,6 +234,12 @@ app.post('/api/webhook/player-signup', verifyWebhookSecret, async (req, res) => 
 
     if (date && !isToday(date)) {
       return res.json({ success: true, message: 'Future game - no WhatsApp sent', skipped: true });
+    }
+
+    const dedupKey = `signup:${playerName}:${date || 'today'}`;
+    if (isDuplicate(dedupKey)) {
+      console.log(`[Dedup] Skipping duplicate signup event for ${playerName}`);
+      return res.json({ success: true, message: 'Duplicate event ignored' });
     }
 
     const whatsapp = getWhatsAppService();
