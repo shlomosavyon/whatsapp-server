@@ -13,6 +13,76 @@ app.use(express.json({ limit: '20mb' }));
 app.use(express.static('.'));
 const EDGE_FUNCTION_BASE_URL = process.env.EDGE_FUNCTION_BASE_URL || 'https://ghpudjkbskkhjhtoedxa.supabase.co/functions/v1';
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "default-secret";
+const FWK_API = 'https://api-v2.friendswithkings.com/api';
+const FWK_EMAIL = process.env.FWK_PROD_EMAIL || '';
+const FWK_PASSWORD = process.env.FWK_PROD_PASSWORD || '';
+
+let fwkTokenCache: { token: string; exp: number } | null = null;
+
+async function getFwkToken(): Promise<string> {
+    if (fwkTokenCache && Date.now() / 1000 < fwkTokenCache.exp - 60) {
+        return fwkTokenCache.token;
+    }
+    const res = await fetch(`${FWK_API}/User/Login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: FWK_EMAIL, password: FWK_PASSWORD }),
+    });
+    if (!res.ok) throw new Error(`FWK login failed: ${res.status}`);
+    const data = await res.json();
+    const token = data.token || data.jwt;
+    if (typeof token !== 'string') throw new Error('FWK login: unexpected response');
+    try {
+        const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+        fwkTokenCache = { token, exp: payload.exp || Date.now() / 1000 + 3600 };
+    } catch {
+        fwkTokenCache = { token, exp: Date.now() / 1000 + 3600 };
+    }
+    return token;
+}
+
+app.post('/api/fwk/create-table', async (req, res) => {
+    try {
+        if (!FWK_EMAIL || !FWK_PASSWORD) {
+            return res.status(500).json({ error: 'FWK credentials not configured. Add FWK_PROD_EMAIL and FWK_PROD_PASSWORD to Railway env vars.' });
+        }
+        const token = await getFwkToken();
+        const now = new Date();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const yyyy = now.getFullYear();
+        const title = req.body?.title || `${mm}-${dd}-${yyyy}`;
+
+        const apiRes = await fetch(`${FWK_API}/Table/CreateTable`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({
+                title,
+                roundTime: 8,
+                purchaseCardTime: 15,
+                purchaseWallTime: 30,
+                declarationTime: 10,
+                declarationWallTime: 20,
+                garbageTime: 25,
+                gameType: 1,
+                isFreez: true,
+                isSuportVideo: true,
+                price: 0,
+                seatOption: 0,
+                smallBlindBet: 1,
+                AllIn: true,
+                CardByCard: { CardIndex: 0, sort: 2 },
+                dealerChoiceOption: 0,
+                declarationOption: 0,
+            }),
+        });
+        const data = await apiRes.json().catch(() => ({}));
+        if (!apiRes.ok) return res.status(apiRes.status).json({ error: data?.error || `FWK API error ${apiRes.status}` });
+        res.json({ success: true, title, ...data });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // Deduplication: ignore identical webhook events within 30 seconds
 const recentEvents = new Map<string, number>();
