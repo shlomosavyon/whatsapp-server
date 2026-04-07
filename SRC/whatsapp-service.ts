@@ -268,6 +268,63 @@ class WhatsAppService {
         }
     }
 
+    async sendMessageWithAttachment(
+        message: string | null,
+        attachment: { data: Buffer; mimetype: string; filename: string } | null,
+        groupName?: string
+    ): Promise<boolean> {
+        if (!this.isConnected || !this.sock) {
+            console.error('WhatsApp is not connected');
+            return false;
+        }
+
+        let targetGroupId: string | null = null;
+        if (groupName) {
+            targetGroupId = this.groupCache.get(groupName.toLowerCase()) || await this.findGroupId(groupName);
+        } else {
+            if (!this.groupId) {
+                const configPath = path.join(this.config.sessionPath, 'group-config.json');
+                if (existsSync(configPath)) {
+                    const savedConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
+                    this.groupId = savedConfig.groupId;
+                }
+            }
+            targetGroupId = this.groupId;
+        }
+
+        if (!targetGroupId) {
+            console.error('Group not found');
+            return false;
+        }
+
+        try {
+            if (attachment) {
+                const { data, mimetype, filename } = attachment;
+                let content: any;
+                if (mimetype.startsWith('image/')) {
+                    content = { image: data, ...(message ? { caption: message } : {}) };
+                } else if (mimetype.startsWith('video/')) {
+                    content = { video: data, ...(message ? { caption: message } : {}) };
+                } else if (mimetype.startsWith('audio/')) {
+                    content = { audio: data, mimetype };
+                } else {
+                    content = { document: data, mimetype, fileName: filename, ...(message ? { caption: message } : {}) };
+                }
+                await this.sock.sendMessage(targetGroupId, content);
+                if (mimetype.startsWith('audio/') && message) {
+                    await this.sock.sendMessage(targetGroupId, { text: message });
+                }
+            } else if (message) {
+                await this.sock.sendMessage(targetGroupId, { text: message });
+            }
+            console.log(`Message sent successfully to ${groupName || this.config.groupName}`);
+            return true;
+        } catch (error) {
+            console.error('Error sending message with attachment:', error);
+            return false;
+        }
+    }
+
     async sendMessage(message: string, groupName?: string): Promise<boolean> {
         if (!this.isConnected || !this.sock) {
             console.error('WhatsApp is not connected');

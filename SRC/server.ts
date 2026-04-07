@@ -176,6 +176,83 @@ app.post('/api/whatsapp/disconnect', async (req, res) => {
   }
 });
 
+// ─── Scheduled messages ──────────────────────────────────────────────────────
+interface ScheduledJob {
+  id: string;
+  message: string | null;
+  attachment: { data: string; mimetype: string; filename: string } | null; // base64 data
+  group: string | null;
+  sendAt: string; // ISO string
+  timer: ReturnType<typeof setTimeout>;
+}
+
+const scheduledJobs = new Map<string, ScheduledJob>();
+
+app.post('/api/whatsapp/schedule', async (req, res) => {
+  try {
+    const { message, attachment, sendAt, group } = req.body;
+
+    if (!message && !attachment) {
+      return res.status(400).json({ error: 'Provide a message, an attachment, or both' });
+    }
+    if (!sendAt) {
+      return res.status(400).json({ error: 'sendAt is required' });
+    }
+
+    const sendTime = new Date(sendAt);
+    const delay = sendTime.getTime() - Date.now();
+    if (delay < 0) {
+      return res.status(400).json({ error: 'sendAt must be in the future' });
+    }
+
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    const timer = setTimeout(async () => {
+      console.log(`[Scheduler] Sending scheduled message ${id}`);
+      const whatsapp = getWhatsAppService();
+      const job = scheduledJobs.get(id);
+      if (!job) return;
+
+      const attachmentBuf = job.attachment
+        ? { data: Buffer.from(job.attachment.data, 'base64'), mimetype: job.attachment.mimetype, filename: job.attachment.filename }
+        : null;
+
+      await whatsapp.sendMessageWithAttachment(job.message, attachmentBuf, job.group || undefined);
+      scheduledJobs.delete(id);
+    }, delay);
+
+    const job: ScheduledJob = { id, message: message || null, attachment: attachment || null, group: group || null, sendAt, timer };
+    scheduledJobs.set(id, job);
+
+    console.log(`[Scheduler] Scheduled message ${id} for ${sendAt}`);
+    res.json({ success: true, id, sendAt });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/whatsapp/scheduled', (req, res) => {
+  const jobs = Array.from(scheduledJobs.values()).map(({ id, message, attachment, group, sendAt }) => ({
+    id,
+    message,
+    hasAttachment: !!attachment,
+    attachmentFilename: attachment?.filename || null,
+    group,
+    sendAt,
+  }));
+  res.json({ jobs });
+});
+
+app.delete('/api/whatsapp/scheduled/:id', (req, res) => {
+  const { id } = req.params;
+  const job = scheduledJobs.get(id);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  clearTimeout(job.timer);
+  scheduledJobs.delete(id);
+  res.json({ success: true });
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
 app.post('/api/whatsapp/test', async (req, res) => {
   try {
     const whatsapp = getWhatsAppService();
