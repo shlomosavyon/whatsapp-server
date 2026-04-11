@@ -349,18 +349,15 @@ app.post('/api/fwk/demote-player', async (req, res) => {
 });
 
 // FWK: Create poker table (reusable function)
+// Only sends the title — all other settings use the FWK API's built-in defaults.
+// This matches the behavior of creating a table via the FWK app's "+" button.
 async function createFwkTable(title: string, role: 'house' | 'host' = 'host'): Promise<{ ok: boolean; status: number; data: any }> {
   const token = await getFwkToken(role);
   const authHeader = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
   const apiRes = await fetch(`${FWK_API}/Table/CreateTable`, {
     method: 'POST',
     headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      title, roundTime: 8, betTime: 10, purchaseCardTime: 15, PurchaseWallStTime: 30,
-      declarationTime: 10, DeclarationWallStTime: 20, garbageTime: 25, gameType: 1, isFreez: true,
-      IsSupportVideo: true, price: 0, seatOption: 0, smallBlindBet: 1, bigBlindBet: 2, AllIn: true,
-      CardByCard: { CardIndex: 0, sort: 2 }, DealerChoiceType: 0, declarationOption: 0,
-    }),
+    body: JSON.stringify({ title }),
   });
   const data = await apiRes.json() as any;
   return { ok: apiRes.ok, status: apiRes.status, data };
