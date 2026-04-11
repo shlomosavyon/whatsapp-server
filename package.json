@@ -1,15 +1,15 @@
 {
   "name": "fwk-whatsapp-server",
-  "version": "1.0.0",
-  "description": "WhatsApp notification server for Friends With Kings",
+  "version": "3.0.0",
+  "description": "FWK notification server (Telegram + FWK API)",
+  "type": "module",
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
-    "dev": "ts-node src/server.ts"
+    "dev": "ts-node --esm src/server.ts"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.18",
     "@hapi/boom": "^10.0.1",
     "node-cron": "^3.0.3",
     "qrcode": "^1.5.3",
