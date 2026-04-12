@@ -1,5 +1,6 @@
 import cron from "node-cron";
- import { getWhatsAppService } from './whatsapp-service.js';
+ // WhatsApp disabled — stub to prevent import errors
+ const getWhatsAppService = () => ({ getConnectionStatus: () => false, sendMessage: async (_msg: string) => false });
 import { notificationService } from './notification-service.js';
  
  interface SchedulerConfig {
