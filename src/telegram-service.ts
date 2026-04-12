@@ -352,9 +352,13 @@ class TelegramService {
           is_active: true,
           last_seen_at: new Date().toISOString(),
         }));
-        await supabase
+        console.log(`[telegram] Syncing ${rows.length} members to Supabase for chat ${chatId}`);
+        const { error: upsertError } = await supabase
           .from('telegram_members')
           .upsert(rows, { onConflict: 'id,chat_id' });
+        if (upsertError) {
+          console.error('[telegram] Upsert error:', upsertError);
+        }
       }
 
       if (leftMemberIds.size > 0) {
@@ -377,8 +381,13 @@ class TelegramService {
         .eq('chat_id', chatId)
         .eq('is_active', true);
 
-      if (error || !data) return [];
+      if (error) {
+        console.error('[telegram] Fetch persisted members error:', error);
+        return [];
+      }
+      if (!data) return [];
 
+      console.log(`[telegram] Found ${data.length} persisted members for chat ${chatId}`);
       return data.map(row => ({
         id: row.id,
         firstName: row.first_name,
@@ -386,7 +395,8 @@ class TelegramService {
         username: row.username || undefined,
         joinedAt: row.joined_at || undefined,
       }));
-    } catch {
+    } catch (err) {
+      console.error('[telegram] getPersistedMembers exception:', err);
       return [];
     }
   }
