@@ -357,7 +357,27 @@ async function createFwkTable(title: string, role: 'house' | 'host' = 'host'): P
   const apiRes = await fetch(`${FWK_API}/Table/CreateTable`, {
     method: 'POST',
     headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title }),
+    body: JSON.stringify({
+      title,
+      roundTime: 8,
+      betTime: 10,
+      purchaseCardTime: 15,
+      PurchaseWallStTime: 30,
+      declarationTime: 10,
+      DeclarationWallStTime: 20,
+      garbageTime: 25,
+      gameType: 1,
+      isFreez: true,
+      IsSupportVideo: true,
+      price: 0,
+      seatOption: 0,
+      smallBlindBet: 1,
+      bigBlindBet: 2,
+      AllIn: true,
+      CardByCard: { CardIndex: 0, sort: 2 },
+      DealerChoiceType: 0,
+      declarationOption: 0,
+    }),
   });
   const data = await apiRes.json() as any;
   return { ok: apiRes.ok, status: apiRes.status, data };
