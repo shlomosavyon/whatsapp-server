@@ -1070,5 +1070,6 @@ app.get('/docs/fwk-api', async (req, res) => {
 // Start server
 app.listen(PORT, async () => {
   console.log(`FWK server running on port ${PORT}`);
-  console.log('WhatsApp fully disabled. All notifications go through Telegram.');
+  console.log('All notifications go through Telegram.');
+  console.log(`Supabase configured: ${!!process.env.SUPABASE_URL && !!process.env.SUPABASE_KEY}`);
 });
