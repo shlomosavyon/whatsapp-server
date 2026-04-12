@@ -7,6 +7,8 @@
  * API reference: https://core.telegram.org/bots/api
  */
 
+import { supabase } from './supabase-client.js';
+
 const TELEGRAM_API = 'https://api.telegram.org';
 
 interface TelegramConfig {
@@ -256,6 +258,7 @@ class TelegramService {
   async getKnownMembers(chatId?: string): Promise<Array<{ id: number; firstName: string; lastName?: string; username?: string; joinedAt?: string }>> {
     const targetChatId = chatId || this.config.defaultChatId;
     const members = new Map<number, { id: number; firstName: string; lastName?: string; username?: string; joinedAt?: string }>();
+    const leftMemberIds = new Set<number>();
 
     // First add admins (always available)
     const admins = await this.getChatAdministrators(targetChatId);
@@ -308,11 +311,84 @@ class TelegramService {
 
       // Track left members
       if (msg.left_chat_member && !msg.left_chat_member.is_bot) {
+        leftMemberIds.add(msg.left_chat_member.id);
         members.delete(msg.left_chat_member.id);
       }
     }
 
-    return Array.from(members.values());
+    // Persist discovered members to Supabase and merge with previously-seen members
+    await this.syncMembersToSupabase(targetChatId!, members, leftMemberIds);
+    const persisted = await this.getPersistedMembers(targetChatId!);
+
+    // Merge: persisted as base, live data overwrites for freshness
+    const merged = new Map<number, { id: number; firstName: string; lastName?: string; username?: string; joinedAt?: string }>();
+    for (const m of persisted) {
+      merged.set(m.id, m);
+    }
+    members.forEach((member, id) => {
+      merged.set(id, member);
+    });
+    leftMemberIds.forEach(id => {
+      merged.delete(id);
+    });
+
+    return Array.from(merged.values());
+  }
+
+  private async syncMembersToSupabase(
+    chatId: string,
+    members: Map<number, { id: number; firstName: string; lastName?: string; username?: string; joinedAt?: string }>,
+    leftMemberIds: Set<number>
+  ): Promise<void> {
+    try {
+      if (members.size > 0) {
+        const rows = Array.from(members.values()).map(m => ({
+          id: m.id,
+          chat_id: chatId,
+          first_name: m.firstName,
+          last_name: m.lastName || null,
+          username: m.username || null,
+          joined_at: m.joinedAt || null,
+          is_active: true,
+          last_seen_at: new Date().toISOString(),
+        }));
+        await supabase
+          .from('telegram_members')
+          .upsert(rows, { onConflict: 'id,chat_id' });
+      }
+
+      if (leftMemberIds.size > 0) {
+        await supabase
+          .from('telegram_members')
+          .update({ is_active: false, updated_at: new Date().toISOString() })
+          .eq('chat_id', chatId)
+          .in('id', Array.from(leftMemberIds));
+      }
+    } catch (err) {
+      console.error('[telegram] Failed to sync members to Supabase:', err);
+    }
+  }
+
+  private async getPersistedMembers(chatId: string): Promise<Array<{ id: number; firstName: string; lastName?: string; username?: string; joinedAt?: string }>> {
+    try {
+      const { data, error } = await supabase
+        .from('telegram_members')
+        .select('id, first_name, last_name, username, joined_at')
+        .eq('chat_id', chatId)
+        .eq('is_active', true);
+
+      if (error || !data) return [];
+
+      return data.map(row => ({
+        id: row.id,
+        firstName: row.first_name,
+        lastName: row.last_name || undefined,
+        username: row.username || undefined,
+        joinedAt: row.joined_at || undefined,
+      }));
+    } catch {
+      return [];
+    }
   }
 
   // Check if bot token is configured
